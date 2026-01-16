@@ -1,0 +1,99 @@
+# GoReleaser configuration for Wiretap
+# Documentation: https://goreleaser.com
+
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+    - go generate ./...
+
+builds:
+  - id: wiretap
+    main: ./cmd/wiretap
+    binary: wiretap
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/wiretap/wiretap/internal/cli.Version={{.Version}}
+      - -X github.com/wiretap/wiretap/internal/cli.Commit={{.Commit}}
+      - -X github.com/wiretap/wiretap/internal/cli.BuildTime={{.Date}}
+    ignore:
+      - goos: windows
+        goarch: arm64
+
+archives:
+  - id: default
+    format: tar.gz
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- .Arch }}
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - README.md
+      - LICENSE*
+      - configs/*
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^ci:'
+      - '^chore:'
+      - Merge pull request
+      - Merge branch
+  groups:
+    - title: Features
+      regexp: "^.*feat[(\\w)]*:+.*$"
+      order: 0
+    - title: Bug Fixes
+      regexp: "^.*fix[(\\w)]*:+.*$"
+      order: 1
+    - title: Performance
+      regexp: "^.*perf[(\\w)]*:+.*$"
+      order: 2
+    - title: Other
+      order: 999
+
+release:
+  github:
+    owner: wiretap
+    name: wiretap
+  prerelease: auto
+  draft: false
+  name_template: "{{.ProjectName}} v{{.Version}}"
+
+brews:
+  - name: wiretap
+    repository:
+      owner: wiretap
+      name: homebrew-tap
+    folder: Formula
+    homepage: "https://github.com/wiretap/wiretap"
+    description: "Network packet analyzer with HTTP/2 and TLS inspection"
+    license: "MIT"
+    install: |
+      bin.install "wiretap"
+    test: |
+      system "#{bin}/wiretap", "version"
+    skip_upload: auto

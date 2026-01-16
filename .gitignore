@@ -1,0 +1,23 @@
+# Binaries
+/bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+wiretap
+
+# Test and coverage
+*.test
+*.out
+coverage.out
+cli.out
+tui.out
+
+# Go workspace
+/go.work
+/go.work.sum
+
+# Editors
+.vscode/
+.DS_Store

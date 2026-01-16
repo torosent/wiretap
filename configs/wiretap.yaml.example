@@ -1,0 +1,68 @@
+# Wiretap Configuration Example
+# Copy to ~/.config/wiretap/config.yaml
+
+# Index file storage directory
+# Default: ~/.cache/wiretap
+index:
+  directory: ~/.cache/wiretap
+  # Auto-index files larger than this size (bytes)
+  auto_index_threshold: 10485760  # 10MB
+
+# Default capture settings
+capture:
+  # Maximum bytes to capture per packet
+  snaplen: 65535
+  # Enable promiscuous mode
+  promiscuous: true
+  # Packet buffer timeout
+  timeout: 1s
+  # Default interface (empty = show selection)
+  interface: ""
+
+# TUI settings
+tui:
+  # Color theme: dark, light
+  theme: dark
+  # Show hex view by default
+  show_hex: true
+  # Show timestamps in local time
+  local_time: true
+  # Time format: relative, absolute, epoch
+  time_format: relative
+  # Maximum packets to display (0 = unlimited, uses virtual scrolling)
+  max_display: 0
+
+# Protocol settings
+protocols:
+  # HTTP settings
+  http:
+    # Maximum body size to parse (bytes)
+    max_body_size: 1048576  # 1MB
+    # Parse HTTP/2 cleartext (h2c)
+    parse_h2c: true
+  
+  # TLS settings
+  tls:
+    # Extract server certificates
+    parse_certificates: true
+    # Compute JA3 fingerprints
+    compute_ja3: true
+  
+  # DNS settings
+  dns:
+    # Resolve PTR records for display
+    resolve_ptr: false
+
+# Export settings
+export:
+  # Default export format: json, har
+  default_format: json
+  # Pretty print JSON output
+  pretty_json: true
+
+# Logging settings
+logging:
+  # Log level: debug, info, warn, error
+  level: info
+  # Log file (empty = stderr only)
+  file: ""

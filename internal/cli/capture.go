@@ -71,6 +71,11 @@ func runCapture(cmd *cobra.Command, args []string) error {
 	promisc, _ := cmd.Flags().GetBool("promisc")
 	showStats, _ := cmd.Flags().GetBool("stats")
 
+	// Allow interface to be passed as positional argument
+	if iface == "" && len(args) > 0 {
+		iface = args[0]
+	}
+
 	// If no interface specified, try to find one
 	if iface == "" {
 		interfaces, err := capture.ListInterfaces()
@@ -182,7 +187,11 @@ func runCapture(cmd *cobra.Command, args []string) error {
 	// Start capture
 	errChan := make(chan error, 1)
 	go func() {
-		errChan <- cap.Start(ctx)
+		if err := cap.Start(ctx); err != nil {
+			errChan <- err
+		}
+		// Block until context is cancelled - don't send nil
+		<-ctx.Done()
 	}()
 
 	// Wait for completion

@@ -1,11 +1,11 @@
 # Binaries
 /bin/
+/build/
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
-wiretap
 
 # Test and coverage
 *.test

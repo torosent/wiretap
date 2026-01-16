@@ -57,6 +57,9 @@ Packet capture requires elevated privileges:
 
 **macOS:**
 ```bash
+# Create the access_bpf group if it doesn't exist
+sudo dseditgroup -o create -q access_bpf
+
 # Add yourself to the access_bpf group (requires restart)
 sudo dseditgroup -o edit -a $(whoami) -t user access_bpf
 ```
@@ -219,6 +222,7 @@ make build-all
 - [ ] WebSocket protocol support
 - [ ] gRPC protocol support
 - [ ] Custom protocol plugins
+- [ ] Domain filtering (SNI from TLS or DNS queries)
 
 ## License
 

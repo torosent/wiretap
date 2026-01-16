@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/wiretap/wiretap/internal/capture"
+	"github.com/wiretap/wiretap/internal/crypto"
 	"github.com/wiretap/wiretap/internal/model"
 	"github.com/wiretap/wiretap/internal/protocol"
 )
@@ -48,6 +49,8 @@ func init() {
 	exportCmd.Flags().StringSlice("protocol", nil, "filter by protocol (http, tls, dns)")
 	exportCmd.Flags().Bool("dissect", true, "include protocol dissection")
 	exportCmd.Flags().Bool("pretty", false, "pretty-print JSON output")
+	exportCmd.Flags().Bool("decrypt", false, "enable TLS decryption (requires --keylog)")
+	exportCmd.Flags().String("keylog", "", "path to NSS SSLKEYLOGFILE for TLS decryption")
 
 	exportCmd.MarkFlagRequired("output")
 }
@@ -77,6 +80,28 @@ func runExport(cmd *cobra.Command, args []string) error {
 	protocols, _ := cmd.Flags().GetStringSlice("protocol")
 	dissect, _ := cmd.Flags().GetBool("dissect")
 	pretty, _ := cmd.Flags().GetBool("pretty")
+	decrypt, _ := cmd.Flags().GetBool("decrypt")
+	keylogFile, _ := cmd.Flags().GetString("keylog")
+
+	// Validate TLS decryption flags
+	if decrypt && keylogFile == "" {
+		return fmt.Errorf("--decrypt requires --keylog to specify the key log file")
+	}
+	if keylogFile != "" && !decrypt {
+		// Auto-enable decryption when keylog file is provided
+		decrypt = true
+	}
+
+	// Load TLS keylog if decryption is enabled
+	var sessionMgr *crypto.SessionManager
+	if decrypt {
+		keyLog, err := crypto.LoadFromFile(keylogFile)
+		if err != nil {
+			return fmt.Errorf("failed to load key log file: %w", err)
+		}
+		sessionMgr = crypto.NewSessionManager(keyLog)
+		fmt.Printf("Loaded %d TLS session keys from %s\n", keyLog.Count(), keylogFile)
+	}
 
 	// Validate format
 	format = strings.ToLower(format)
@@ -104,8 +129,14 @@ func runExport(cmd *cobra.Command, args []string) error {
 	}
 	defer outFile.Close()
 
-	// Create dissector registry
-	registry := protocol.NewRegistry()
+	// Create dissector registry (with or without TLS decryption)
+	var registry *protocol.DissectorRegistry
+	if sessionMgr != nil {
+		registry = protocol.NewDecryptingRegistry(sessionMgr)
+		fmt.Println("TLS decryption enabled")
+	} else {
+		registry = protocol.NewRegistry()
+	}
 
 	// Collect packets
 	var packets []ExportPacket
@@ -330,8 +361,20 @@ func buildHAREntry(pkt *model.Packet) *HAREntry {
 		return nil
 	}
 
+	// Skip entries from encrypted TLS traffic that wasn't decrypted
+	// This prevents garbage data from appearing in HAR output
+	if pkt.TLSInfo != nil && !pkt.TLSDecrypted {
+		// TLS traffic that wasn't decrypted - skip it
+		return nil
+	}
+
 	request := pkt.HTTPInfo.Request
 	response := pkt.HTTPInfo.Response
+
+	// Validate that we have valid HTTP data (not garbage from encrypted traffic)
+	if !isValidHTTPData(request, response) {
+		return nil
+	}
 
 	startTime := pkt.Timestamp
 	if request != nil && !request.Timestamp.IsZero() {
@@ -355,6 +398,99 @@ func buildHAREntry(pkt *model.Packet) *HAREntry {
 	entry.Response = buildHARResponse(response)
 
 	return entry
+}
+
+// isValidHTTPData checks if the HTTP request/response contains valid data
+// and not garbage from encrypted traffic that was incorrectly parsed.
+// For HAR export, we require a valid request since HAR represents HTTP transactions.
+func isValidHTTPData(req *model.HTTPRequest, resp *model.HTTPResponse) bool {
+	// HAR entries must have a valid request (HAR is request/response based)
+	// Response-only entries are not useful for HAR format
+	if req == nil {
+		return false
+	}
+
+	// Method is required and must be a valid HTTP method (no control chars or nulls)
+	method := string(req.Method)
+	if method == "" || containsInvalidChars(method) {
+		return false
+	}
+
+	// Validate that method is a known HTTP method
+	validMethods := map[string]bool{
+		"GET": true, "HEAD": true, "POST": true, "PUT": true,
+		"DELETE": true, "CONNECT": true, "OPTIONS": true, "TRACE": true, "PATCH": true,
+	}
+	if !validMethods[method] {
+		return false
+	}
+
+	// URI is required and must not be empty or contain invalid chars
+	if req.URI == "" || containsInvalidChars(req.URI) {
+		return false
+	}
+
+	// Host should not contain null bytes
+	if containsInvalidChars(req.Host) {
+		return false
+	}
+
+	// Check headers for invalid characters
+	for name, values := range req.Headers {
+		if containsInvalidChars(name) {
+			return false
+		}
+		for _, v := range values {
+			if containsInvalidChars(v) {
+				return false
+			}
+		}
+	}
+
+	// Validate response if present
+	if resp != nil {
+		// Status code should be valid (100-599)
+		if resp.StatusCode < 100 || resp.StatusCode > 599 {
+			// Allow 0 only if there's no response
+			if resp.StatusCode != 0 {
+				return false
+			}
+		}
+
+		// Check headers for invalid characters
+		for name, values := range resp.Headers {
+			if containsInvalidChars(name) {
+				return false
+			}
+			for _, v := range values {
+				if containsInvalidChars(v) {
+					return false
+				}
+			}
+		}
+	}
+
+	return true
+}
+
+// containsInvalidChars checks if a string contains null bytes or other
+// control characters that indicate corrupted/binary data.
+func containsInvalidChars(s string) bool {
+	for _, r := range s {
+		// Null byte
+		if r == 0 {
+			return true
+		}
+		// Control characters (except tab, newline, carriage return)
+		if r < 32 && r != '\t' && r != '\n' && r != '\r' {
+			return true
+		}
+		// Unicode replacement character (indicates binary data was decoded)
+		if r == '\uFFFD' {
+			return true
+		}
+	}
+	return false
 }
 
 func buildHARRequest(req *model.HTTPRequest, pkt *model.Packet) HARRequest {

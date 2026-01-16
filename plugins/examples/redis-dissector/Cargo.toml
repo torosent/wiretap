@@ -1,0 +1,16 @@
+[package]
+name = "redis-dissector"
+version = "1.0.0"
+edition = "2021"
+description = "Redis RESP protocol dissector plugin for Wiretap"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true

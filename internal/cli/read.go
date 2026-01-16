@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/wiretap/wiretap/internal/capture"
+	"github.com/wiretap/wiretap/internal/crypto"
 	"github.com/wiretap/wiretap/internal/model"
 	"github.com/wiretap/wiretap/internal/protocol"
 )
@@ -51,6 +52,8 @@ func init() {
 	readCmd.Flags().Int("src-port", 0, "filter by source port")
 	readCmd.Flags().Int("dst-port", 0, "filter by destination port")
 	readCmd.Flags().String("index-dir", "", "override index directory for auto-indexing")
+	readCmd.Flags().Bool("decrypt", false, "enable TLS decryption (requires --keylog)")
+	readCmd.Flags().String("keylog", "", "path to NSS SSLKEYLOGFILE for TLS decryption")
 }
 
 func runRead(cmd *cobra.Command, args []string) error {
@@ -69,6 +72,28 @@ func runRead(cmd *cobra.Command, args []string) error {
 	srcPort, _ := cmd.Flags().GetInt("src-port")
 	dstPort, _ := cmd.Flags().GetInt("dst-port")
 	indexDir, _ := cmd.Flags().GetString("index-dir")
+	decrypt, _ := cmd.Flags().GetBool("decrypt")
+	keylogFile, _ := cmd.Flags().GetString("keylog")
+
+	// Validate TLS decryption flags
+	if decrypt && keylogFile == "" {
+		return fmt.Errorf("--decrypt requires --keylog to specify the key log file")
+	}
+	if keylogFile != "" && !decrypt {
+		// Auto-enable decryption when keylog file is provided
+		decrypt = true
+	}
+
+	// Load TLS keylog if decryption is enabled
+	var sessionMgr *crypto.SessionManager
+	if decrypt {
+		keyLog, err := crypto.LoadFromFile(keylogFile)
+		if err != nil {
+			return fmt.Errorf("failed to load key log file: %w", err)
+		}
+		sessionMgr = crypto.NewSessionManager(keyLog)
+		fmt.Printf("Loaded %d TLS session keys from %s\n", keyLog.Count(), keylogFile)
+	}
 
 	if indexDir != "" {
 		if cfg == nil {
@@ -124,8 +149,14 @@ func runRead(cmd *cobra.Command, args []string) error {
 		fmt.Println()
 	}
 
-	// Create dissector registry
-	registry := protocol.NewRegistry()
+	// Create dissector registry (with or without TLS decryption)
+	var registry *protocol.DissectorRegistry
+	if sessionMgr != nil {
+		registry = protocol.NewDecryptingRegistry(sessionMgr)
+		fmt.Println("TLS decryption enabled")
+	} else {
+		registry = protocol.NewRegistry()
+	}
 
 	// Create tabwriter for aligned output
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)

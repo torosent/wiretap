@@ -60,6 +60,7 @@ type ProtocolsConfig struct {
 	HTTP HTTPProtocolConfig `mapstructure:"http"`
 	TLS  TLSProtocolConfig  `mapstructure:"tls"`
 	DNS  DNSProtocolConfig  `mapstructure:"dns"`
+	GRPC GRPCProtocolConfig `mapstructure:"grpc"`
 }
 
 // HTTPProtocolConfig holds HTTP-specific settings.
@@ -76,12 +77,24 @@ type TLSProtocolConfig struct {
 	ParseCertificates bool `mapstructure:"parse_certificates"`
 	// Compute JA3 fingerprints
 	ComputeJA3 bool `mapstructure:"compute_ja3"`
+	// Enable TLS decryption (requires keylog file)
+	Decrypt bool `mapstructure:"decrypt"`
+	// Path to NSS SSLKEYLOGFILE for TLS decryption
+	KeyLogFile string `mapstructure:"keylog_file"`
 }
 
 // DNSProtocolConfig holds DNS-specific settings.
 type DNSProtocolConfig struct {
 	// Resolve PTR records for display
 	ResolvePTR bool `mapstructure:"resolve_ptr"`
+}
+
+// GRPCProtocolConfig holds gRPC-specific settings.
+type GRPCProtocolConfig struct {
+	// Directories to search for .proto files (compiled descriptor sets)
+	ProtoDirs []string `mapstructure:"proto_dirs"`
+	// Individual .proto descriptor files
+	ProtoFiles []string `mapstructure:"proto_files"`
 }
 
 // ExportConfig holds configuration for data export.
@@ -129,9 +142,15 @@ func DefaultConfig() *Config {
 			TLS: TLSProtocolConfig{
 				ParseCertificates: true,
 				ComputeJA3:        true,
+				Decrypt:           false,
+				KeyLogFile:        "",
 			},
 			DNS: DNSProtocolConfig{
 				ResolvePTR: false,
+			},
+			GRPC: GRPCProtocolConfig{
+				ProtoDirs:  []string{},
+				ProtoFiles: []string{},
 			},
 		},
 		Export: ExportConfig{
@@ -266,7 +285,11 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("protocols.http.parse_h2c", true)
 	v.SetDefault("protocols.tls.parse_certificates", true)
 	v.SetDefault("protocols.tls.compute_ja3", true)
+	v.SetDefault("protocols.tls.decrypt", false)
+	v.SetDefault("protocols.tls.keylog_file", "")
 	v.SetDefault("protocols.dns.resolve_ptr", false)
+	v.SetDefault("protocols.grpc.proto_dirs", []string{})
+	v.SetDefault("protocols.grpc.proto_files", []string{})
 
 	// Export defaults
 	v.SetDefault("export.default_format", "json")

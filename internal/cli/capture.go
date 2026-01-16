@@ -59,6 +59,10 @@ func init() {
 	captureCmd.Flags().DurationP("timeout", "t", 0, "capture duration (0 = unlimited)")
 	captureCmd.Flags().Bool("promisc", true, "enable promiscuous mode")
 	captureCmd.Flags().Bool("stats", false, "show capture statistics on exit")
+	captureCmd.Flags().Bool("decrypt", false, "enable TLS decryption (requires --keylog)")
+	captureCmd.Flags().String("keylog", "", "path to NSS SSLKEYLOGFILE for TLS decryption")
+	captureCmd.Flags().StringSlice("proto-dir", nil, "directories containing .proto descriptor files for gRPC decoding")
+	captureCmd.Flags().StringSlice("proto-file", nil, "individual .proto descriptor files for gRPC decoding")
 }
 
 func runCapture(cmd *cobra.Command, args []string) error {
@@ -70,6 +74,19 @@ func runCapture(cmd *cobra.Command, args []string) error {
 	timeout, _ := cmd.Flags().GetDuration("timeout")
 	promisc, _ := cmd.Flags().GetBool("promisc")
 	showStats, _ := cmd.Flags().GetBool("stats")
+	decrypt, _ := cmd.Flags().GetBool("decrypt")
+	keylogFile, _ := cmd.Flags().GetString("keylog")
+	protoDirs, _ := cmd.Flags().GetStringSlice("proto-dir")
+	protoFiles, _ := cmd.Flags().GetStringSlice("proto-file")
+
+	// Validate TLS decryption flags
+	if decrypt && keylogFile == "" {
+		return fmt.Errorf("--decrypt requires --keylog to specify the key log file")
+	}
+	if keylogFile != "" && !decrypt {
+		// Auto-enable decryption when keylog file is provided
+		decrypt = true
+	}
 
 	// Allow interface to be passed as positional argument
 	if iface == "" && len(args) > 0 {
@@ -99,11 +116,15 @@ func runCapture(cmd *cobra.Command, args []string) error {
 
 	// Create capture options
 	opts := &capture.CaptureOptions{
-		Interface:   iface,
-		SnapLen:     int32(snaplen),
-		Promiscuous: promisc,
-		Timeout:     time.Second, // pcap read timeout
-		BPFFilter:   filter,
+		Interface:      iface,
+		SnapLen:        int32(snaplen),
+		Promiscuous:    promisc,
+		Timeout:        time.Second, // pcap read timeout
+		BPFFilter:      filter,
+		TLSDecrypt:     decrypt,
+		TLSKeyLogFile:  keylogFile,
+		GRPCProtoDirs:  protoDirs,
+		GRPCProtoFiles: protoFiles,
 	}
 
 	// Create capture instance

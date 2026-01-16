@@ -21,6 +21,8 @@ func newCaptureTestCommand() *cobra.Command {
 	cmd.Flags().Bool("promisc", true, "")
 	cmd.Flags().Bool("stats", false, "")
 	cmd.Flags().Bool("verbose", false, "")
+	cmd.Flags().Bool("decrypt", false, "")
+	cmd.Flags().String("keylog", "", "")
 	return cmd
 }
 
@@ -77,5 +79,46 @@ func TestRunCapture_WithStub(t *testing.T) {
 
 	if err := runCapture(cmd, nil); err != nil {
 		t.Fatalf("runCapture failed: %v", err)
+	}
+}
+
+func TestRunCapture_DecryptWithoutKeylog(t *testing.T) {
+	cmd := newCaptureTestCommand()
+	cmd.Flags().Set("interface", "stub0")
+	cmd.Flags().Set("decrypt", "true")
+
+	err := runCapture(cmd, nil)
+	if err == nil {
+		t.Fatal("Expected error when --decrypt is set without --keylog")
+	}
+	expectedErr := "--decrypt requires --keylog"
+	if err.Error() != expectedErr+" to specify the key log file" {
+		t.Errorf("Unexpected error: %v", err)
+	}
+}
+
+func TestRunCapture_KeylogAutoEnablesDecrypt(t *testing.T) {
+	cmd := newCaptureTestCommand()
+	cmd.Flags().Set("interface", "stub0")
+	cmd.Flags().Set("keylog", "/tmp/keylog.log")
+	cmd.Flags().Set("count", "1")
+
+	orig := newLiveCapture
+	var capturedOpts *capture.CaptureOptions
+	newLiveCapture = func(opts *capture.CaptureOptions) liveCapture {
+		capturedOpts = opts
+		return &stubCapture{stats: capture.CaptureStats{PacketsReceived: 1}}
+	}
+	t.Cleanup(func() { newLiveCapture = orig })
+
+	if err := runCapture(cmd, nil); err != nil {
+		t.Fatalf("runCapture failed: %v", err)
+	}
+
+	if !capturedOpts.TLSDecrypt {
+		t.Error("Expected TLSDecrypt to be auto-enabled when keylog is provided")
+	}
+	if capturedOpts.TLSKeyLogFile != "/tmp/keylog.log" {
+		t.Errorf("Expected TLSKeyLogFile to be set, got %s", capturedOpts.TLSKeyLogFile)
 	}
 }

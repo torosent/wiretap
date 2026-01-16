@@ -227,6 +227,20 @@ type Packet struct {
 	HTTP2Frames []*HTTP2Frame
 	TLSInfo     *TLSInfo
 	DNSInfo     *DNSInfo
+
+	// WebSocket data
+	WebSocketHandshake *WebSocketHandshake
+	WebSocketFrames    []*WebSocketFrame
+
+	// gRPC data
+	GRPCMessages []*GRPCMessage
+
+	// TLS decryption
+	TLSDecrypted     bool   // True if TLS was decrypted
+	DecryptedPayload []byte // Decrypted application data
+
+	// Extra contains plugin-provided and extension data
+	Extra map[string]interface{}
 }
 
 // Layer represents a protocol layer in a packet.

@@ -34,6 +34,12 @@ type CaptureOptions struct {
 	SnapLen     int32
 	Timeout     time.Duration
 	BPFFilter   string
+	// TLS decryption options
+	TLSDecrypt    bool
+	TLSKeyLogFile string
+	// gRPC protobuf options
+	GRPCProtoDirs  []string
+	GRPCProtoFiles []string
 }
 
 // DefaultCaptureOptions returns default capture options.

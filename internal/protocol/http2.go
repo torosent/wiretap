@@ -42,17 +42,74 @@ func (d *HTTP2Dissector) Detect(data []byte) bool {
 	// Check for HTTP/2 frame (if already past the preface)
 	// Frame format: 9-byte header (3 length + 1 type + 1 flags + 4 stream ID)
 	if len(data) >= 9 {
+		// First check: reject TLS records (content type 0x14-0x18, 0xff)
+		// TLS records start with: type (1 byte), version (2 bytes), length (2 bytes)
+		if data[0] >= 0x14 && data[0] <= 0x18 {
+			// Likely TLS: ChangeCipherSpec(20), Alert(21), Handshake(22), AppData(23), Heartbeat(24)
+			return false
+		}
+		if data[0] == 0xff {
+			// TLS reserved
+			return false
+		}
+
+		// Parse potential HTTP/2 frame header
+		length := int(data[0])<<16 | int(data[1])<<8 | int(data[2])
 		frameType := data[3]
 		flags := data[4]
 		streamID := binary.BigEndian.Uint32(data[5:9]) & 0x7FFFFFFF // Mask reserved bit
 
 		// Valid frame type (0-9 defined in RFC 7540)
-		if frameType <= 9 {
-			// Heuristic: reasonable flags and stream ID
-			_ = flags
-			_ = streamID
-			return true
+		if frameType > 9 {
+			return false
 		}
+
+		// Sanity checks for HTTP/2 frames
+		// Frame length should be reasonable (max 16KB default, 16MB max)
+		if length > 16*1024*1024 {
+			return false
+		}
+
+		// Validate flags based on frame type
+		validFlags := false
+		switch frameType {
+		case 0: // DATA: END_STREAM(0x1), PADDED(0x8)
+			validFlags = flags&^0x09 == 0
+		case 1: // HEADERS: END_STREAM(0x1), END_HEADERS(0x4), PADDED(0x8), PRIORITY(0x20)
+			validFlags = flags&^0x2d == 0
+		case 2: // PRIORITY: no flags
+			validFlags = flags == 0
+		case 3: // RST_STREAM: no flags
+			validFlags = flags == 0
+		case 4: // SETTINGS: ACK(0x1)
+			validFlags = flags&^0x01 == 0
+		case 5: // PUSH_PROMISE: END_HEADERS(0x4), PADDED(0x8)
+			validFlags = flags&^0x0c == 0
+		case 6: // PING: ACK(0x1)
+			validFlags = flags&^0x01 == 0
+		case 7: // GOAWAY: no flags
+			validFlags = flags == 0
+		case 8: // WINDOW_UPDATE: no flags
+			validFlags = flags == 0
+		case 9: // CONTINUATION: END_HEADERS(0x4)
+			validFlags = flags&^0x04 == 0
+		}
+
+		if !validFlags {
+			return false
+		}
+
+		// Stream ID constraints
+		// SETTINGS, PING, GOAWAY must use stream 0
+		if (frameType == 4 || frameType == 6 || frameType == 7) && streamID != 0 {
+			return false
+		}
+		// DATA, HEADERS, PRIORITY, RST_STREAM, PUSH_PROMISE, CONTINUATION must not use stream 0
+		if (frameType == 0 || frameType == 1 || frameType == 2 || frameType == 3 || frameType == 5 || frameType == 9) && streamID == 0 {
+			return false
+		}
+
+		return true
 	}
 
 	return false

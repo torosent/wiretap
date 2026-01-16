@@ -47,11 +47,24 @@ protocols:
     parse_certificates: true
     # Compute JA3 fingerprints
     compute_ja3: true
+    # Enable TLS decryption (default: false for security)
+    decrypt: false
+    # Path to NSS SSLKEYLOGFILE for TLS decryption
+    # See: https://wiki.wireshark.org/TLS#using-the-pre-master-secret
+    keylog_file: ""
   
   # DNS settings
   dns:
     # Resolve PTR records for display
     resolve_ptr: false
+
+  # gRPC settings
+  grpc:
+    # Directories to search for compiled .proto descriptor files
+    # Generate descriptors with: protoc --descriptor_set_out=desc.pb *.proto
+    proto_dirs: []
+    # Individual proto descriptor files
+    proto_files: []
 
 # Export settings
 export:

@@ -9,7 +9,7 @@ require (
 	github.com/rivo/tview v0.42.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
-	github.com/tetratelabs/wazero v1.9.0
+	github.com/tetratelabs/wazero v1.11.0
 	go.yaml.in/yaml/v3 v3.0.4
 	golang.org/x/crypto v0.47.0
 	golang.org/x/net v0.48.0

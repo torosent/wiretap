@@ -1,4 +1,4 @@
-# Wiretap
+# wiretap
 
 [![Test Coverage](https://codecov.io/gh/torosent/wiretap/branch/main/graph/badge.svg)](https://codecov.io/gh/torosent/wiretap)
 [![Go Report Card](https://goreportcard.com/badge/github.com/torosent/wiretap)](https://goreportcard.com/report/github.com/torosent/wiretap)
@@ -31,7 +31,7 @@ A network packet analyzer written in Go.
 
 ```bash
 # Clone the repository
-git clone https://github.com/wiretap/wiretap.git
+git clone https://github.com/torosent/wiretap.git
 cd wiretap
 
 # Build

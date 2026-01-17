@@ -70,13 +70,19 @@ func newReadTestCommand() *cobra.Command {
 	cmd.Flags().Int("skip", 0, "")
 	cmd.Flags().Bool("dissect", false, "")
 	cmd.Flags().Bool("hex", false, "")
-	cmd.Flags().Bool("summary", false, "")
+	cmd.Flags().Bool("summary", true, "")
 	cmd.Flags().StringSlice("protocol", nil, "")
 	cmd.Flags().String("src-ip", "", "")
 	cmd.Flags().String("dst-ip", "", "")
 	cmd.Flags().Int("src-port", 0, "")
 	cmd.Flags().Int("dst-port", 0, "")
 	cmd.Flags().String("index-dir", "", "")
+	cmd.Flags().Bool("decrypt", false, "")
+	cmd.Flags().String("keylog", "", "")
+	cmd.Flags().String("plugin-dir", "", "")
+	cmd.Flags().StringSlice("plugin", nil, "")
+	cmd.Flags().StringSlice("proto-dir", nil, "")
+	cmd.Flags().StringSlice("proto-file", nil, "")
 	return cmd
 }
 
@@ -122,6 +128,22 @@ func TestRunRead_DissectHex(t *testing.T) {
 
 	if err := runRead(cmd, []string{pcapPath}); err != nil {
 		t.Fatalf("runRead failed: %v", err)
+	}
+}
+
+func TestRunRead_BPF(t *testing.T) {
+	tmpDir := t.TempDir()
+	pcapPath := filepath.Join(tmpDir, "read.pcap")
+
+	writeTestPcapFile(t, pcapPath)
+
+	cmd := newReadTestCommand()
+	cmd.Flags().Set("filter", "tcp port 80")
+	cmd.Flags().Set("count", "1")
+	cmd.Flags().Set("summary", "false")
+
+	if err := runRead(cmd, []string{pcapPath}); err != nil {
+		t.Fatalf("runRead with BPF failed: %v", err)
 	}
 }
 

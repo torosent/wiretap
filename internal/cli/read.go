@@ -1,13 +1,15 @@
 package cli
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"net"
 	"os"
-	"strings"
 	"text/tabwriter"
 	"time"
 
+	"github.com/gopacket/gopacket"
 	"github.com/spf13/cobra"
 	"github.com/wiretap/wiretap/internal/capture"
 	"github.com/wiretap/wiretap/internal/crypto"
@@ -40,13 +42,13 @@ Examples:
 }
 
 func init() {
-	readCmd.Flags().StringP("filter", "f", "", "BPF filter expression (post-capture)")
+	readCmd.Flags().StringP("filter", "f", "", "BPF filter expression")
 	readCmd.Flags().IntP("count", "c", 0, "number of packets to display (0 = all)")
 	readCmd.Flags().Int("skip", 0, "skip first N packets")
 	readCmd.Flags().Bool("dissect", false, "show protocol dissection details")
 	readCmd.Flags().Bool("hex", false, "show hex dump of packet data")
 	readCmd.Flags().Bool("summary", true, "show file summary")
-	readCmd.Flags().StringSlice("protocol", nil, "filter by protocol (http, tls, dns)")
+	readCmd.Flags().StringSlice("protocol", nil, "filter by protocol (http, http2, tls, dns, grpc, websocket, tcp, udp, icmp)")
 	readCmd.Flags().String("src-ip", "", "filter by source IP")
 	readCmd.Flags().String("dst-ip", "", "filter by destination IP")
 	readCmd.Flags().Int("src-port", 0, "filter by source port")
@@ -54,6 +56,10 @@ func init() {
 	readCmd.Flags().String("index-dir", "", "override index directory for auto-indexing")
 	readCmd.Flags().Bool("decrypt", false, "enable TLS decryption (requires --keylog)")
 	readCmd.Flags().String("keylog", "", "path to NSS SSLKEYLOGFILE for TLS decryption")
+	readCmd.Flags().String("plugin-dir", "", "directory containing WASM plugins")
+	readCmd.Flags().StringSlice("plugin", nil, "WASM plugin file(s) to load")
+	readCmd.Flags().StringSlice("proto-dir", nil, "directories containing .pb descriptor sets for gRPC decoding")
+	readCmd.Flags().StringSlice("proto-file", nil, "individual .pb descriptor sets for gRPC decoding")
 }
 
 func runRead(cmd *cobra.Command, args []string) error {
@@ -74,6 +80,24 @@ func runRead(cmd *cobra.Command, args []string) error {
 	indexDir, _ := cmd.Flags().GetString("index-dir")
 	decrypt, _ := cmd.Flags().GetBool("decrypt")
 	keylogFile, _ := cmd.Flags().GetString("keylog")
+	pluginDir, _ := cmd.Flags().GetString("plugin-dir")
+	pluginFiles, _ := cmd.Flags().GetStringSlice("plugin")
+	protoDirs, _ := cmd.Flags().GetStringSlice("proto-dir")
+	protoFiles, _ := cmd.Flags().GetStringSlice("proto-file")
+
+	cfg := GetConfig()
+	if !cmd.Flags().Changed("plugin-dir") {
+		pluginDir = cfg.Plugins.Directory
+	}
+	if !cmd.Flags().Changed("plugin") {
+		pluginFiles = cfg.Plugins.Enabled
+	}
+	if !cmd.Flags().Changed("proto-dir") {
+		protoDirs = cfg.Protocols.GRPC.ProtoDirs
+	}
+	if !cmd.Flags().Changed("proto-file") {
+		protoFiles = cfg.Protocols.GRPC.ProtoFiles
+	}
 
 	// Validate TLS decryption flags
 	if decrypt && keylogFile == "" {
@@ -96,9 +120,6 @@ func runRead(cmd *cobra.Command, args []string) error {
 	}
 
 	if indexDir != "" {
-		if cfg == nil {
-			cfg = GetConfig()
-		}
 		cfg.Index.Directory = indexDir
 	}
 
@@ -138,15 +159,15 @@ func runRead(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Note: BPF filter for offline files would require re-implementation
-	// For now, we do post-capture filtering
-	_ = bpfFilter
-
 	// Show file summary
 	if showSummary {
 		fmt.Printf("File: %s\n", filename)
 		fmt.Printf("Link type: %s\n", reader.LinkType())
 		fmt.Println()
+	}
+
+	if err := protocol.ConfigureGRPCDissector(protoDirs, protoFiles); err != nil {
+		return fmt.Errorf("failed to load gRPC descriptors: %w", err)
 	}
 
 	// Create dissector registry (with or without TLS decryption)
@@ -156,6 +177,20 @@ func runRead(cmd *cobra.Command, args []string) error {
 		fmt.Println("TLS decryption enabled")
 	} else {
 		registry = protocol.NewRegistry()
+	}
+
+	pluginMgr, err := loadAndRegisterPlugins(registry, pluginDir, pluginFiles)
+	if err != nil {
+		return fmt.Errorf("failed to load plugins: %w", err)
+	}
+	if pluginMgr != nil {
+		defer pluginMgr.Close(context.Background())
+	}
+
+	// Compile offline BPF filter if provided
+	bpf, err := compileBPFFilter(reader.LinkType(), bpfFilter)
+	if err != nil {
+		return fmt.Errorf("invalid BPF filter: %w", err)
 	}
 
 	// Create tabwriter for aligned output
@@ -168,18 +203,35 @@ func runRead(cmd *cobra.Command, args []string) error {
 	displayed := 0
 	var firstTime time.Time
 
-	iter := capture.NewPacketIterator(reader)
 	for {
-		pkt, ok := iter.Next()
-		if !ok {
-			break
+		ci, data, err := reader.ReadPacket()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return fmt.Errorf("read packet: %w", err)
 		}
+
 		packetNum++
 
 		// Skip if needed
 		if packetNum <= skip {
 			continue
 		}
+
+		// Apply BPF filter if provided
+		if bpf != nil && !bpf.Matches(ci, data) {
+			continue
+		}
+
+		rawPacket := gopacket.NewPacket(data, reader.LinkType(), gopacket.Default)
+		meta := rawPacket.Metadata()
+		meta.Timestamp = ci.Timestamp
+		meta.CaptureLength = ci.CaptureLength
+		meta.Length = ci.Length
+
+		pkt := capture.ParsePacket(rawPacket)
+		pkt.Index = uint64(packetNum)
 
 		// Apply filters
 		if srcIP != nil && !pkt.SrcIP.Equal(srcIP) {
@@ -196,18 +248,8 @@ func runRead(cmd *cobra.Command, args []string) error {
 		}
 
 		// Protocol filter
-		if len(protocols) > 0 {
-			protoMatch := false
-			pktProto := strings.ToLower(pkt.Protocol.String())
-			for _, p := range protocols {
-				if strings.ToLower(p) == pktProto {
-					protoMatch = true
-					break
-				}
-			}
-			if !protoMatch {
-				continue
-			}
+		if !packetMatchesProtocols(pkt, protocols, registry) {
+			continue
 		}
 
 		displayed++

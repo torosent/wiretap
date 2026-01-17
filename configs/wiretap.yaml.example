@@ -48,6 +48,7 @@ protocols:
     # Compute JA3 fingerprints
     compute_ja3: true
     # Enable TLS decryption (default: false for security)
+    # Note: TLS decryption is controlled by CLI flags (--decrypt/--keylog).
     decrypt: false
     # Path to NSS SSLKEYLOGFILE for TLS decryption
     # See: https://wiki.wireshark.org/TLS#using-the-pre-master-secret
@@ -60,10 +61,10 @@ protocols:
 
   # gRPC settings
   grpc:
-    # Directories to search for compiled .proto descriptor files
+    # Directories to search for descriptor sets (.pb)
     # Generate descriptors with: protoc --descriptor_set_out=desc.pb *.proto
     proto_dirs: []
-    # Individual proto descriptor files
+    # Individual descriptor set files (.pb)
     proto_files: []
 
 # Export settings

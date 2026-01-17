@@ -66,6 +66,9 @@ func (b *Builder) Build() error {
 		return fmt.Errorf("failed to open pcap: %w", err)
 	}
 	defer reader.Close()
+	if reader.IsPcapng() {
+		return fmt.Errorf("pcapng indexing is not supported (use .pcap)")
+	}
 
 	// Get pcap file size
 	info, err := os.Stat(b.pcapPath)
@@ -110,7 +113,7 @@ func (b *Builder) writeHeader() error {
 
 	binary.LittleEndian.PutUint32(header[0:4], MagicNumber)
 	binary.LittleEndian.PutUint32(header[4:8], CurrentVersion)
-	binary.LittleEndian.PutUint64(header[8:16], 0) // packet count
+	binary.LittleEndian.PutUint64(header[8:16], 0)  // packet count
 	binary.LittleEndian.PutUint64(header[16:24], 0) // connection count
 	binary.LittleEndian.PutUint64(header[24:32], uint64(b.createdAt))
 	binary.LittleEndian.PutUint64(header[32:40], uint64(b.fileSize))

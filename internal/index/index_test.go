@@ -310,6 +310,54 @@ func TestIndex_SearchByProtocol(t *testing.T) {
 	}
 }
 
+func TestIndex_SearchByTime(t *testing.T) {
+	indexPath := createTestIndex(t)
+
+	idx, err := Open(indexPath)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer idx.Close()
+
+	first, err := idx.GetPacket(0)
+	if err != nil {
+		t.Fatalf("GetPacket(0) failed: %v", err)
+	}
+	second, err := idx.GetPacket(1)
+	if err != nil {
+		t.Fatalf("GetPacket(1) failed: %v", err)
+	}
+
+	start := time.Unix(0, first.Timestamp)
+	end := time.Unix(0, second.Timestamp)
+
+	results, err := idx.SearchByTime(start, end)
+	if err != nil {
+		t.Fatalf("SearchByTime failed: %v", err)
+	}
+	if len(results) < 2 {
+		t.Fatalf("Expected at least 2 results, got %d", len(results))
+	}
+}
+
+func TestIndex_SearchByIP(t *testing.T) {
+	indexPath := createTestIndex(t)
+
+	idx, err := Open(indexPath)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer idx.Close()
+
+	results, err := idx.SearchByIP(net.ParseIP("192.168.1.1"))
+	if err != nil {
+		t.Fatalf("SearchByIP failed: %v", err)
+	}
+	if len(results) != 3 {
+		t.Fatalf("Expected 3 results, got %d", len(results))
+	}
+}
+
 func TestIndex_Header(t *testing.T) {
 	indexPath := createTestIndex(t)
 
@@ -350,6 +398,30 @@ func TestIndex_Close(t *testing.T) {
 	_, err = idx.GetPacket(0)
 	if err != ErrIndexNotOpen {
 		t.Errorf("Expected ErrIndexNotOpen after close, got %v", err)
+	}
+}
+
+func TestIndex_Verify(t *testing.T) {
+	indexPath := createTestIndex(t)
+
+	idx, err := Open(indexPath)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer idx.Close()
+
+	header := idx.Header()
+	if header == nil {
+		t.Fatal("Header returned nil")
+	}
+
+	pcapPath := filepath.Join(t.TempDir(), "sample.pcap")
+	if err := os.WriteFile(pcapPath, make([]byte, int(header.PcapFileSize)), 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	if err := idx.Verify(pcapPath); err != nil {
+		t.Fatalf("Verify failed: %v", err)
 	}
 }
 

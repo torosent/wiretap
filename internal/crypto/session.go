@@ -8,9 +8,9 @@ import (
 // SessionManager manages TLS sessions for decryption.
 // It tracks TLS connections and their associated decryptors.
 type SessionManager struct {
-	mu        sync.RWMutex
-	keyLog    *KeyLog
-	sessions  map[string]*TLSSession
+	mu       sync.RWMutex
+	keyLog   *KeyLog
+	sessions map[string]*TLSSession
 }
 
 // TLSSession represents a tracked TLS connection.

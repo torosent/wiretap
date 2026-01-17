@@ -192,11 +192,27 @@ func (c *Capture) processPacket(gp gopacket.Packet) {
 
 // parsePacket converts a gopacket.Packet to model.Packet.
 func parsePacket(gp gopacket.Packet) *model.Packet {
+	meta := gp.Metadata()
+	dataCopy := append([]byte(nil), gp.Data()...)
+
+	captureLen := meta.CaptureLength
+	if captureLen == 0 {
+		captureLen = len(dataCopy)
+	}
+
+	originalLen := meta.Length
+	if originalLen == 0 {
+		originalLen = len(dataCopy)
+	}
+
 	pkt := &model.Packet{
-		Timestamp:  gp.Metadata().Timestamp,
-		Length:     uint32(len(gp.Data())),
-		CaptureLen: uint32(gp.Metadata().CaptureLength),
-		Data:       gp.Data(),
+		Timestamp:   meta.Timestamp,
+		Length:      uint32(originalLen),
+		CapturedLen: uint32(captureLen),
+		OriginalLen: uint32(originalLen),
+		CaptureLen:  uint32(captureLen),
+		RawData:     dataCopy,
+		Data:        dataCopy,
 	}
 
 	// Parse ARP early
@@ -274,10 +290,27 @@ func parsePacket(gp gopacket.Packet) *model.Packet {
 
 	// Store application layer payload
 	if appLayer := gp.ApplicationLayer(); appLayer != nil {
-		pkt.Payload = appLayer.Payload()
+		payloadCopy := append([]byte(nil), appLayer.Payload()...)
+		pkt.Payload = payloadCopy
 	}
 
 	return pkt
+}
+
+// ParsePacket converts a gopacket.Packet to model.Packet.
+func ParsePacket(gp gopacket.Packet) *model.Packet {
+	return parsePacket(gp)
+}
+
+// LinkTypeForInterface returns the link type for a capture interface.
+func LinkTypeForInterface(name string, snaplen int32, promisc bool, timeout time.Duration) (layers.LinkType, error) {
+	handle, err := pcap.OpenLive(name, snaplen, promisc, timeout)
+	if err != nil {
+		return 0, err
+	}
+	defer handle.Close()
+
+	return handle.LinkType(), nil
 }
 
 // Stop stops packet capture.

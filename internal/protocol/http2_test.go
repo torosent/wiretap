@@ -1,11 +1,13 @@
 package protocol
 
 import (
+	"bytes"
 	"testing"
 	"time"
 
 	"github.com/wiretap/wiretap/internal/model"
 	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/hpack"
 )
 
 func TestHTTP2DissectorName(t *testing.T) {
@@ -31,8 +33,8 @@ func TestHTTP2DissectorDetectFrame(t *testing.T) {
 	// Valid SETTINGS frame: length=0, type=4, flags=0, stream=0
 	frame := []byte{
 		0x00, 0x00, 0x00, // length = 0
-		0x04,             // type = SETTINGS
-		0x00,             // flags = 0
+		0x04,                   // type = SETTINGS
+		0x00,                   // flags = 0
 		0x00, 0x00, 0x00, 0x00, // stream ID = 0
 	}
 
@@ -149,6 +151,83 @@ func TestHTTP2DissectorParseData(t *testing.T) {
 
 	if string(f.Payload) != "Hello, World!" {
 		t.Errorf("expected payload 'Hello, World!', got %q", f.Payload)
+	}
+}
+
+func TestHTTP2DissectorParseGRPC(t *testing.T) {
+	var buf bytes.Buffer
+	fr := http2.NewFramer(&buf, nil)
+
+	// Build HPACK headers indicating gRPC content.
+	var hbuf bytes.Buffer
+	enc := hpack.NewEncoder(&hbuf)
+	_ = enc.WriteField(hpack.HeaderField{Name: ":method", Value: "POST"})
+	_ = enc.WriteField(hpack.HeaderField{Name: ":path", Value: "/svc.Test/Method"})
+	_ = enc.WriteField(hpack.HeaderField{Name: "content-type", Value: "application/grpc"})
+
+	if err := fr.WriteHeaders(http2.HeadersFrameParam{
+		StreamID:      1,
+		BlockFragment: hbuf.Bytes(),
+		EndHeaders:    true,
+	}); err != nil {
+		t.Fatalf("WriteHeaders failed: %v", err)
+	}
+
+	grpcPayload := []byte{0x00, 0x00, 0x00, 0x00, 0x02, 'h', 'i'}
+	if err := fr.WriteData(1, true, grpcPayload); err != nil {
+		t.Fatalf("WriteData failed: %v", err)
+	}
+
+	packet := &model.Packet{Timestamp: time.Now()}
+	d := NewHTTP2Dissector()
+	if err := d.Parse(buf.Bytes(), packet); err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	if packet.ApplicationProtocol != "gRPC" {
+		t.Fatalf("expected ApplicationProtocol gRPC, got %s", packet.ApplicationProtocol)
+	}
+	if len(packet.GRPCMessages) != 1 {
+		t.Fatalf("expected 1 gRPC message, got %d", len(packet.GRPCMessages))
+	}
+	if packet.GRPCMessages[0].ServiceMethod != "/svc.Test/Method" {
+		t.Errorf("ServiceMethod = %s", packet.GRPCMessages[0].ServiceMethod)
+	}
+}
+
+func TestHTTP2StreamParser_ProcessFrame(t *testing.T) {
+	parser := NewHTTP2StreamParser()
+
+	headersFrame := &model.HTTP2Frame{
+		Type:     http2.FrameHeaders,
+		StreamID: 1,
+		Flags:    http2.FlagHeadersEndHeaders,
+		Headers:  []model.Header{{Name: ":path", Value: "/"}},
+	}
+	if err := parser.ProcessFrame(headersFrame); err != nil {
+		t.Fatalf("ProcessFrame headers failed: %v", err)
+	}
+
+	dataFrame := &model.HTTP2Frame{
+		Type:     http2.FrameData,
+		StreamID: 1,
+		Flags:    http2.FlagDataEndStream,
+		Payload:  []byte("hello"),
+	}
+	if err := parser.ProcessFrame(dataFrame); err != nil {
+		t.Fatalf("ProcessFrame data failed: %v", err)
+	}
+
+	stream, err := parser.GetStream(1)
+	if err != nil {
+		t.Fatalf("GetStream failed: %v", err)
+	}
+	if string(stream.Data) != "hello" {
+		t.Fatalf("unexpected stream data: %s", string(stream.Data))
+	}
+
+	if _, err := parser.GetStream(2); err == nil {
+		t.Fatal("expected error for missing stream")
 	}
 }
 

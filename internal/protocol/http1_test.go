@@ -168,33 +168,33 @@ func TestHTTP1Dissector_Parse_Response(t *testing.T) {
 	d := NewHTTP1Dissector()
 
 	tests := []struct {
-		name         string
-		data         string
-		wantStatus   int
-		wantVersion  model.HTTPVersion
+		name        string
+		data        string
+		wantStatus  int
+		wantVersion model.HTTPVersion
 	}{
 		{
-			name:       "200 OK",
-			data:       "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 5\r\n\r\nhello",
-			wantStatus: 200,
+			name:        "200 OK",
+			data:        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 5\r\n\r\nhello",
+			wantStatus:  200,
 			wantVersion: model.HTTPVersion11,
 		},
 		{
-			name:       "404 Not Found",
-			data:       "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n",
-			wantStatus: 404,
+			name:        "404 Not Found",
+			data:        "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n",
+			wantStatus:  404,
 			wantVersion: model.HTTPVersion11,
 		},
 		{
-			name:       "302 Found",
-			data:       "HTTP/1.1 302 Found\r\nLocation: /new-path\r\n\r\n",
-			wantStatus: 302,
+			name:        "302 Found",
+			data:        "HTTP/1.1 302 Found\r\nLocation: /new-path\r\n\r\n",
+			wantStatus:  302,
 			wantVersion: model.HTTPVersion11,
 		},
 		{
-			name:       "500 Internal Server Error",
-			data:       "HTTP/1.1 500 Internal Server Error\r\n\r\n",
-			wantStatus: 500,
+			name:        "500 Internal Server Error",
+			data:        "HTTP/1.1 500 Internal Server Error\r\n\r\n",
+			wantStatus:  500,
 			wantVersion: model.HTTPVersion11,
 		},
 	}

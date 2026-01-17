@@ -13,14 +13,14 @@ A network packet analyzer written in Go.
   - HTTP/1.x and HTTP/2 (cleartext h2c)
   - TLS (handshake metadata, SNI, certificates, JA3 fingerprinting)
   - **WebSocket** (frames, masking, text/binary messages)
-  - **gRPC** (HTTP/2-based RPC with dynamic protobuf decoding)
+  - **gRPC** (HTTP/2-based RPC with schema-less decoding; descriptor sets optional)
 - **TLS Decryption**: Decrypt HTTPS traffic using SSLKEYLOGFILE
 - **Domain Filtering**: Filter by domain patterns, IP addresses/CIDR, and ports
 - **WASM Plugins**: Extend with custom protocol dissectors in WebAssembly
 - **Memory-Mapped Indexing**: Efficiently handle large capture files (millions of packets)
 - **BPF Filters**: Use Berkeley Packet Filter syntax for capture filtering
 - **Terminal UI**: Three-pane Wireshark-style interface with packet list, protocol tree, and hex view
-- **Export Formats**: JSON and HAR export for HTTP conversations
+- **Export Formats**: JSON, JSONL, CSV for packets; HAR for HTTP conversations
 
 ## Installation
 
@@ -101,8 +101,8 @@ wiretap capture -i eth0 -c 1000
 Decrypt HTTPS/TLS traffic using the NSS SSLKEYLOGFILE format:
 
 ```bash
-# Capture with TLS decryption enabled
-wiretap capture -i eth0 --decrypt --keylog /path/to/sslkeys.log
+# Capture traffic while logging TLS keys (decryption happens during read/export)
+wiretap capture -i eth0 -w capture.pcap -f "tcp port 443"
 
 # Read pcap with TLS decryption
 wiretap read capture.pcap --decrypt --keylog /path/to/sslkeys.log
@@ -128,22 +128,23 @@ SSLKEYLOGFILE=/tmp/sslkeys.log python script.py
 
 ### gRPC Analysis
 
-Analyze gRPC traffic with optional protobuf schema support:
+Analyze gRPC traffic with optional protobuf descriptor sets:
 
 ```bash
-# Basic gRPC analysis (dynamic protobuf decoding)
-wiretap capture -i eth0 -f "tcp port 50051"
+# Basic gRPC analysis (schema-less decoding)
+wiretap read capture.pcap --protocol grpc
 
-# With .proto files for better field names
-wiretap capture -i eth0 --proto-dir ./protos/
+# With descriptor sets for better field names
+# Generate: protoc --descriptor_set_out=desc.pb your.proto
+wiretap read capture.pcap --proto-dir ./protos/
 
-# Specify individual proto files
-wiretap capture -i eth0 --proto-file api.proto --proto-file types.proto
+# Specify individual descriptor sets
+wiretap read capture.pcap --proto-file api.pb --proto-file types.pb
 ```
 
 ### Domain Filtering
 
-Filter traffic by domain, IP address, or port:
+Filter traffic by domain, IP address, or port (domain detection uses HTTP Host, TLS SNI, or DNS queries when available):
 
 ```bash
 # Include only specific domains
@@ -178,10 +179,10 @@ Extend wiretap with custom protocol dissectors:
 
 ```bash
 # Load plugins from directory
-wiretap capture -i eth0 --plugin-dir ./plugins/
+wiretap read capture.pcap --plugin-dir ./plugins/
 
 # Load specific plugin
-wiretap capture -i eth0 --plugin ./plugins/custom-protocol.wasm
+wiretap read capture.pcap --plugin ./plugins/custom-protocol.wasm
 ```
 
 See [plugins/README.md](plugins/README.md) for plugin development guide.
@@ -200,8 +201,6 @@ touch /tmp/sslkeys.log
 
 # Start capturing HTTPS traffic (in Terminal 1)
 sudo wiretap capture -i en0 \
-  --decrypt \
-  --keylog /tmp/sslkeys.log \
   -f "tcp port 443" \
   -w /tmp/https_capture.pcap
 ```
@@ -271,11 +270,12 @@ sudo wiretap capture -i en0 \
 
 ### Example 3: Analyze gRPC Microservices
 
+> Generate descriptor sets with: `protoc --descriptor_set_out=desc.pb your.proto`
+
 ```bash
 # Capture gRPC traffic on standard port
 sudo wiretap capture -i eth0 \
   -f "tcp port 50051" \
-  --proto-dir ./protos/ \
   -w grpc_capture.pcap
 
 # Read with protocol definitions
@@ -298,6 +298,9 @@ sudo wiretap capture -i en0 \
 # Open pcap in TUI
 wiretap read capture.pcap
 
+# Read with BPF filter
+wiretap read capture.pcap -f "tcp port 443"
+
 # Build/rebuild index for large files
 wiretap index capture.pcap
 
@@ -314,11 +317,20 @@ wiretap interfaces
 ### Export Data
 
 ```bash
-# Export HTTP conversations as JSON
+# Export packets as JSON
 wiretap export capture.pcap --format json -o output.json
+
+# Export packets as JSONL
+wiretap export capture.pcap --format jsonl -o output.jsonl
+
+# Export packets as CSV
+wiretap export capture.pcap --format csv -o output.csv
 
 # Export as HAR (HTTP Archive)
 wiretap export capture.pcap --format har -o output.har
+
+# Export only HTTP traffic
+wiretap export capture.pcap --protocol http -o http.json
 ```
 
 ### Configuration
@@ -336,15 +348,21 @@ capture:
   promiscuous: true
   timeout: 1s
 
-# TLS decryption settings
-tls:
-  decrypt: false
-  keylog_file: ""
-
-# gRPC settings
-grpc:
-  proto_dirs: []
-  proto_files: []
+# Protocol settings
+protocols:
+  http:
+    max_body_size: 1048576
+    parse_h2c: true
+  tls:
+    parse_certificates: true
+    compute_ja3: true
+    decrypt: false
+    keylog_file: ""
+  dns:
+    resolve_ptr: false
+  grpc:
+    proto_dirs: []
+    proto_files: []
 
 # Domain filtering
 filter:
@@ -360,10 +378,21 @@ plugins:
   directory: ~/.config/wiretap/plugins
   enabled: []
 
-# TUI settings
+  # TLS settings
 tui:
   theme: dark
   show_hex: true
+    # Note: TLS decryption is controlled by CLI flags (--decrypt/--keylog).
+    decrypt: false
+    keylog_file: ""
+export:
+  default_format: json
+  pretty_json: true
+
+# Logging settings
+logging:
+  level: info
+  file: ""
 ```
 
 View/edit configuration:
@@ -438,6 +467,10 @@ make fmt
 make build-all
 ```
 
+## Indexing Notes
+
+- Indexing currently supports `.pcap` files only (pcapng indexing is not supported yet).
+
 ## Roadmap
 
 ### v1 (Complete)
@@ -453,7 +486,7 @@ make build-all
 - [x] TLS decryption via SSLKEYLOGFILE
 - [x] HTTP/2 over TLS inspection
 - [x] WebSocket protocol support
-- [x] gRPC protocol support (with dynamic protobuf)
+- [x] gRPC protocol support (schema-less decoding; descriptor sets optional)
 - [x] WASM plugin system for custom protocols
 - [x] Domain/IP/Port filtering
 

@@ -120,6 +120,9 @@ func TestTLSDissectorParseClientHello(t *testing.T) {
 	if pkt.TLSInfo.ClientHello.SNI != "example.com" {
 		t.Errorf("expected SNI example.com, got %s", pkt.TLSInfo.ClientHello.SNI)
 	}
+	if pkt.TLSInfo.Version != pkt.TLSInfo.ClientHello.Version {
+		t.Errorf("expected TLSInfo.Version to match ClientHello version")
+	}
 
 	if len(pkt.TLSInfo.ClientHello.CipherSuites) == 0 {
 		t.Error("expected cipher suites to be parsed")

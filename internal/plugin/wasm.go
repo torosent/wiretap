@@ -380,6 +380,18 @@ func (m *Manager) ListPlugins() []PluginInfo {
 	return infos
 }
 
+// Plugins returns all loaded plugin instances.
+func (m *Manager) Plugins() []*Plugin {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	plugins := make([]*Plugin, 0, len(m.plugins))
+	for _, p := range m.plugins {
+		plugins = append(plugins, p)
+	}
+	return plugins
+}
+
 // UnloadPlugin unloads a plugin by name.
 func (m *Manager) UnloadPlugin(ctx context.Context, name string) error {
 	m.mu.Lock()

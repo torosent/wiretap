@@ -25,53 +25,53 @@ func TestWebSocketDissector_Detect(t *testing.T) {
 		expect bool
 	}{
 		{
-			name: "upgrade request",
-			data: []byte("GET /chat HTTP/1.1\r\nHost: example.com\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n"),
+			name:   "upgrade request",
+			data:   []byte("GET /chat HTTP/1.1\r\nHost: example.com\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n"),
 			expect: true,
 		},
 		{
-			name: "upgrade response",
-			data: []byte("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n"),
+			name:   "upgrade response",
+			data:   []byte("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n"),
 			expect: true,
 		},
 		{
-			name: "text frame",
-			data: []byte{0x81, 0x05, 'h', 'e', 'l', 'l', 'o'},
+			name:   "text frame",
+			data:   []byte{0x81, 0x05, 'h', 'e', 'l', 'l', 'o'},
 			expect: true,
 		},
 		{
-			name: "binary frame",
-			data: []byte{0x82, 0x04, 0x01, 0x02, 0x03, 0x04},
+			name:   "binary frame",
+			data:   []byte{0x82, 0x04, 0x01, 0x02, 0x03, 0x04},
 			expect: true,
 		},
 		{
-			name: "close frame",
-			data: []byte{0x88, 0x02, 0x03, 0xe8},
+			name:   "close frame",
+			data:   []byte{0x88, 0x02, 0x03, 0xe8},
 			expect: true,
 		},
 		{
-			name: "ping frame",
-			data: []byte{0x89, 0x00},
+			name:   "ping frame",
+			data:   []byte{0x89, 0x00},
 			expect: true,
 		},
 		{
-			name: "pong frame",
-			data: []byte{0x8A, 0x00},
+			name:   "pong frame",
+			data:   []byte{0x8A, 0x00},
 			expect: true,
 		},
 		{
-			name: "regular HTTP",
-			data: []byte("GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"),
+			name:   "regular HTTP",
+			data:   []byte("GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"),
 			expect: false,
 		},
 		{
-			name: "TLS data",
-			data: []byte{0x16, 0x03, 0x01, 0x00, 0x05},
+			name:   "TLS data",
+			data:   []byte{0x16, 0x03, 0x01, 0x00, 0x05},
 			expect: false,
 		},
 		{
-			name: "short data",
-			data: []byte{0x81},
+			name:   "short data",
+			data:   []byte{0x81},
 			expect: false,
 		},
 	}

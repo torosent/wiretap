@@ -81,12 +81,12 @@ type TCPStream struct {
 	netFlow   gopacket.Flow
 	transFlow gopacket.Flow
 	reader    tcpreader.ReaderStream
-	
+
 	// Metadata
-	mu         sync.Mutex
-	data       []byte
-	byteCount  int64
-	closed     bool
+	mu        sync.Mutex
+	data      []byte
+	byteCount int64
+	closed    bool
 }
 
 // Read reads from the stream.
@@ -193,10 +193,10 @@ type ConnectionReassembler struct {
 
 // ReassembledConnection holds reassembled data for a connection.
 type ReassembledConnection struct {
-	Connection  *model.Connection
-	ClientData  []byte
-	ServerData  []byte
-	mu          sync.Mutex
+	Connection *model.Connection
+	ClientData []byte
+	ServerData []byte
+	mu         sync.Mutex
 }
 
 // NewConnectionReassembler creates a new connection reassembler.

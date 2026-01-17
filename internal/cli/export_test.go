@@ -2,10 +2,12 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -71,6 +73,30 @@ func writeHTTPPcap(t *testing.T, path string) {
 	}
 }
 
+func writeHTTPPcapWithPackets(t *testing.T, path string, count int) {
+	t.Helper()
+
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+	defer f.Close()
+
+	writer := pcapgo.NewWriter(f)
+	if err := writer.WriteFileHeader(65535, layers.LinkTypeEthernet); err != nil {
+		t.Fatalf("WriteFileHeader failed: %v", err)
+	}
+
+	for i := 0; i < count; i++ {
+		payload := []byte(fmt.Sprintf("GET /search?q=%d HTTP/1.1\r\nHost: example.com\r\n\r\n", i))
+		data := buildHTTPPacket(t, payload)
+		ci := gopacket.CaptureInfo{Timestamp: time.Now(), CaptureLength: len(data), Length: len(data)}
+		if err := writer.WritePacket(ci, data); err != nil {
+			t.Fatalf("WritePacket failed: %v", err)
+		}
+	}
+}
+
 func newExportTestCommand() *cobra.Command {
 	cmd := &cobra.Command{}
 	cmd.Flags().String("output", "", "")
@@ -80,6 +106,10 @@ func newExportTestCommand() *cobra.Command {
 	cmd.Flags().StringSlice("protocol", nil, "")
 	cmd.Flags().Bool("dissect", true, "")
 	cmd.Flags().Bool("pretty", false, "")
+	cmd.Flags().String("plugin-dir", "", "")
+	cmd.Flags().StringSlice("plugin", nil, "")
+	cmd.Flags().StringSlice("proto-dir", nil, "")
+	cmd.Flags().StringSlice("proto-file", nil, "")
 	return cmd
 }
 
@@ -180,6 +210,32 @@ func TestRunExport_CSVAndJSONL(t *testing.T) {
 	}
 }
 
+func TestRunExport_JSONLCount(t *testing.T) {
+	tmpDir := t.TempDir()
+	pcapPath := filepath.Join(tmpDir, "http.pcap")
+	jsonlPath := filepath.Join(tmpDir, "out.jsonl")
+
+	writeHTTPPcapWithPackets(t, pcapPath, 2)
+
+	cmd := newExportTestCommand()
+	cmd.Flags().Set("output", jsonlPath)
+	cmd.Flags().Set("format", "jsonl")
+	cmd.Flags().Set("count", "1")
+
+	if err := runExport(cmd, []string{pcapPath}); err != nil {
+		t.Fatalf("JSONL export failed: %v", err)
+	}
+
+	data, err := os.ReadFile(jsonlPath)
+	if err != nil {
+		t.Fatalf("ReadFile failed: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("Expected 1 JSONL entry, got %d", len(lines))
+	}
+}
+
 func TestRunExport_InvalidFormat(t *testing.T) {
 	cmd := newExportTestCommand()
 	cmd.Flags().Set("format", "unknown")
@@ -252,11 +308,11 @@ func TestHARHelpers(t *testing.T) {
 	}
 
 	resp := &model.HTTPResponse{
-		StatusCode: 200,
-		StatusText: "OK",
-		Version:    model.HTTPVersion11,
-		Headers:    map[string][]string{"Content-Type": {"text/plain"}},
-		Body:       []byte("ok"),
+		StatusCode:  200,
+		StatusText:  "OK",
+		Version:     model.HTTPVersion11,
+		Headers:     map[string][]string{"Content-Type": {"text/plain"}},
+		Body:        []byte("ok"),
 		ContentType: "text/plain",
 	}
 	response := buildHARResponse(resp)
@@ -300,5 +356,91 @@ func TestHARHelpers(t *testing.T) {
 	}
 	if params = extractQueryParams("%zz"); params != nil {
 		t.Error("Expected nil params for invalid URL")
+	}
+}
+
+func TestContainsInvalidChars(t *testing.T) {
+	if containsInvalidChars("valid") {
+		t.Fatal("Expected valid string to pass")
+	}
+	if containsInvalidChars("tab\tnewline\n") {
+		t.Fatal("Expected tab/newline to be allowed")
+	}
+	if !containsInvalidChars("a\x00b") {
+		t.Fatal("Expected null byte to be invalid")
+	}
+	if !containsInvalidChars("a\x01b") {
+		t.Fatal("Expected control char to be invalid")
+	}
+}
+
+func TestIsValidHTTPData(t *testing.T) {
+	req := &model.HTTPRequest{Method: model.HTTPMethod("CUSTOM"), URI: "/"}
+	if isValidHTTPData(req, nil) {
+		t.Fatal("Expected invalid method to fail")
+	}
+
+	req = &model.HTTPRequest{Method: model.HTTPMethodGET, URI: ""}
+	if isValidHTTPData(req, nil) {
+		t.Fatal("Expected empty URI to fail")
+	}
+
+	req = &model.HTTPRequest{Method: model.HTTPMethodGET, URI: "/", Host: "\x00"}
+	if isValidHTTPData(req, nil) {
+		t.Fatal("Expected invalid host to fail")
+	}
+
+	req = &model.HTTPRequest{Method: model.HTTPMethodGET, URI: "/", Headers: map[string][]string{"X-Test": {"ok"}}}
+	resp := &model.HTTPResponse{StatusCode: 700}
+	if isValidHTTPData(req, resp) {
+		t.Fatal("Expected invalid status code to fail")
+	}
+
+	resp.StatusCode = 0
+	if !isValidHTTPData(req, resp) {
+		t.Fatal("Expected status 0 to be accepted")
+	}
+}
+
+func TestBuildHAREntry_SkipInvalid(t *testing.T) {
+	if entry := buildHAREntry(nil); entry != nil {
+		t.Fatal("Expected nil entry for nil packet")
+	}
+
+	pkt := &model.Packet{HTTPInfo: &model.HTTPConversation{}}
+	if entry := buildHAREntry(pkt); entry != nil {
+		t.Fatal("Expected nil entry for missing request")
+	}
+
+	pkt = &model.Packet{
+		HTTPInfo:     &model.HTTPConversation{Request: &model.HTTPRequest{Method: model.HTTPMethodGET, URI: "/"}},
+		TLSInfo:      &model.TLSInfo{Version: model.TLSVersion12},
+		TLSDecrypted: false,
+	}
+	if entry := buildHAREntry(pkt); entry != nil {
+		t.Fatal("Expected nil entry for non-decrypted TLS traffic")
+	}
+}
+
+func TestBuildHARRequest_Nil(t *testing.T) {
+	req := buildHARRequest(nil, nil)
+	if req.HeadersSize != -1 || req.BodySize != -1 {
+		t.Fatalf("Expected -1 sizes, got headers=%d body=%d", req.HeadersSize, req.BodySize)
+	}
+}
+
+func TestBuildRequestURL_Fallbacks(t *testing.T) {
+	req := &model.HTTPRequest{URI: "path"}
+	pkt := &model.Packet{DstIP: net.ParseIP("10.0.0.1"), DstPort: 443}
+	urlStr := buildRequestURL(req, pkt)
+	if urlStr != "https://10.0.0.1/path" {
+		t.Fatalf("Unexpected URL %s", urlStr)
+	}
+
+	req = &model.HTTPRequest{Path: ""}
+	pkt = &model.Packet{DstIP: net.ParseIP("10.0.0.2"), DstPort: 80}
+	urlStr = buildRequestURL(req, pkt)
+	if urlStr != "http://10.0.0.2/" {
+		t.Fatalf("Unexpected URL %s", urlStr)
 	}
 }

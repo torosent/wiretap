@@ -27,6 +27,19 @@ func TestManager_ListPlugins_Empty(t *testing.T) {
 	}
 }
 
+func TestManager_Plugins(t *testing.T) {
+	mgr := NewManager()
+	mgr.plugins["example"] = &Plugin{info: PluginInfo{Name: "example"}}
+
+	plugins := mgr.Plugins()
+	if len(plugins) != 1 {
+		t.Fatalf("Expected 1 plugin, got %d", len(plugins))
+	}
+	if plugins[0].Name() != "example" {
+		t.Errorf("Plugin name = %s", plugins[0].Name())
+	}
+}
+
 func TestManager_GetPlugin_NotFound(t *testing.T) {
 	mgr := NewManager()
 	_, err := mgr.GetPlugin("nonexistent")

@@ -29,8 +29,8 @@ func TestWebSocketOpcode_String(t *testing.T) {
 
 func TestWebSocketOpcode_IsControl(t *testing.T) {
 	tests := []struct {
-		opcode   WebSocketOpcode
-		isCtrl   bool
+		opcode WebSocketOpcode
+		isCtrl bool
 	}{
 		{WebSocketOpcodeContinuation, false},
 		{WebSocketOpcodeText, false},

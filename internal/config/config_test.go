@@ -190,7 +190,7 @@ func TestConfig_IndexPath(t *testing.T) {
 	pcapPath := "/path/to/capture.pcap"
 	indexPath := cfg.IndexPath(pcapPath)
 
-	expected := "/tmp/test-index/capture.pcap.idx"
+	expected := "/tmp/test-index/capture.idx"
 	if indexPath != expected {
 		t.Errorf("IndexPath = %s, want %s", indexPath, expected)
 	}
@@ -206,7 +206,7 @@ func TestConfig_IndexPath_NestedPath(t *testing.T) {
 	pcapPath := "/deeply/nested/path/to/capture.pcap"
 	indexPath := cfg.IndexPath(pcapPath)
 
-	expected := "/tmp/test-index/capture.pcap.idx"
+	expected := "/tmp/test-index/capture.idx"
 	if indexPath != expected {
 		t.Errorf("IndexPath = %s, want %s", indexPath, expected)
 	}

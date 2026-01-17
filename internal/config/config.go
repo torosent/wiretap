@@ -9,16 +9,19 @@ import (
 	"time"
 
 	"github.com/spf13/viper"
+	"github.com/wiretap/wiretap/internal/filter"
 )
 
 // Config holds all configuration for wiretap.
 type Config struct {
-	Index     IndexConfig     `mapstructure:"index"`
-	Capture   CaptureConfig   `mapstructure:"capture"`
-	TUI       TUIConfig       `mapstructure:"tui"`
-	Protocols ProtocolsConfig `mapstructure:"protocols"`
-	Export    ExportConfig    `mapstructure:"export"`
-	Logging   LoggingConfig   `mapstructure:"logging"`
+	Index     IndexConfig         `mapstructure:"index"`
+	Capture   CaptureConfig       `mapstructure:"capture"`
+	TUI       TUIConfig           `mapstructure:"tui"`
+	Protocols ProtocolsConfig     `mapstructure:"protocols"`
+	Filter    filter.FilterConfig `mapstructure:"filter"`
+	Plugins   PluginsConfig       `mapstructure:"plugins"`
+	Export    ExportConfig        `mapstructure:"export"`
+	Logging   LoggingConfig       `mapstructure:"logging"`
 }
 
 // IndexConfig holds configuration for packet indexing.
@@ -97,6 +100,14 @@ type GRPCProtocolConfig struct {
 	ProtoFiles []string `mapstructure:"proto_files"`
 }
 
+// PluginsConfig holds configuration for WASM plugins.
+type PluginsConfig struct {
+	// Directory containing plugins
+	Directory string `mapstructure:"directory"`
+	// Enabled plugin filenames (relative to directory) or absolute paths
+	Enabled []string `mapstructure:"enabled"`
+}
+
 // ExportConfig holds configuration for data export.
 type ExportConfig struct {
 	// Default export format: json, har
@@ -152,6 +163,18 @@ func DefaultConfig() *Config {
 				ProtoDirs:  []string{},
 				ProtoFiles: []string{},
 			},
+		},
+		Filter: filter.FilterConfig{
+			IncludeDomains: []string{},
+			ExcludeDomains: []string{},
+			IncludeIPs:     []string{},
+			ExcludeIPs:     []string{},
+			IncludePorts:   []string{},
+			ExcludePorts:   []string{},
+		},
+		Plugins: PluginsConfig{
+			Directory: filepath.Join(homeDir, ".config", "wiretap", "plugins"),
+			Enabled:   []string{},
 		},
 		Export: ExportConfig{
 			DefaultFormat: "json",
@@ -291,6 +314,18 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("protocols.grpc.proto_dirs", []string{})
 	v.SetDefault("protocols.grpc.proto_files", []string{})
 
+	// Filter defaults
+	v.SetDefault("filter.include_domains", []string{})
+	v.SetDefault("filter.exclude_domains", []string{})
+	v.SetDefault("filter.include_ips", []string{})
+	v.SetDefault("filter.exclude_ips", []string{})
+	v.SetDefault("filter.include_ports", []string{})
+	v.SetDefault("filter.exclude_ports", []string{})
+
+	// Plugin defaults
+	v.SetDefault("plugins.directory", filepath.Join(homeDir, ".config", "wiretap", "plugins"))
+	v.SetDefault("plugins.enabled", []string{})
+
 	// Export defaults
 	v.SetDefault("export.default_format", "json")
 	v.SetDefault("export.pretty_json", true)
@@ -330,5 +365,7 @@ func (c *Config) EnsureIndexDir() error {
 func (c *Config) IndexPath(pcapPath string) string {
 	// Use the pcap filename with .idx extension
 	base := filepath.Base(pcapPath)
-	return filepath.Join(c.Index.Directory, base+".idx")
+	ext := filepath.Ext(base)
+	name := base[:len(base)-len(ext)]
+	return filepath.Join(c.Index.Directory, name+".idx")
 }

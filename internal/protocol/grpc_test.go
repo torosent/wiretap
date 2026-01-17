@@ -18,6 +18,25 @@ func TestNewGRPCDissector(t *testing.T) {
 	}
 }
 
+func TestDefaultGRPCDissector(t *testing.T) {
+	d := DefaultGRPCDissector()
+	if d == nil {
+		t.Fatal("DefaultGRPCDissector returned nil")
+	}
+}
+
+func TestConfigureGRPCDissector_Empty(t *testing.T) {
+	if err := ConfigureGRPCDissector(nil, nil); err != nil {
+		t.Fatalf("ConfigureGRPCDissector returned error: %v", err)
+	}
+}
+
+func TestConfigureGRPCDissector_InvalidDir(t *testing.T) {
+	if err := ConfigureGRPCDissector([]string{"/nonexistent"}, nil); err == nil {
+		t.Fatal("expected error for missing descriptor directory")
+	}
+}
+
 func TestGRPCDissector_Detect(t *testing.T) {
 	d := NewGRPCDissector()
 
@@ -367,7 +386,7 @@ func TestGRPCDissector_ParseFixed64Field(t *testing.T) {
 	// Protobuf with fixed64 field (wire type 1).
 	// Field 1 with wire type 1 (fixed64): tag = (1 << 3) | 1 = 0x09
 	protoPayload := []byte{
-		0x09, // field 1, wire type 1 (fixed64)
+		0x09,                                           // field 1, wire type 1 (fixed64)
 		0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // value = 1
 	}
 	data := createGRPCFrame(false, protoPayload)
@@ -390,7 +409,7 @@ func TestGRPCDissector_ParseFixed32Field(t *testing.T) {
 	// Protobuf with fixed32 field (wire type 5).
 	// Field 1 with wire type 5 (fixed32): tag = (1 << 3) | 5 = 0x0d
 	protoPayload := []byte{
-		0x0d, // field 1, wire type 5 (fixed32)
+		0x0d,                   // field 1, wire type 5 (fixed32)
 		0x2a, 0x00, 0x00, 0x00, // value = 42
 	}
 	data := createGRPCFrame(false, protoPayload)

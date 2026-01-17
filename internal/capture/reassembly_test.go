@@ -53,13 +53,13 @@ func TestConnectionReassembler(t *testing.T) {
 	reassembler := NewConnectionReassembler(tracker)
 
 	pkt := &model.Packet{
-		Index:      1,
-		Timestamp:  time.Now(),
-		SrcIP:      []byte{10, 0, 0, 1},
-		DstIP:      []byte{10, 0, 0, 2},
-		SrcPort:    1234,
-		DstPort:    80,
-		Protocol:   model.ProtocolTCP,
+		Index:       1,
+		Timestamp:   time.Now(),
+		SrcIP:       []byte{10, 0, 0, 1},
+		DstIP:       []byte{10, 0, 0, 2},
+		SrcPort:     1234,
+		DstPort:     80,
+		Protocol:    model.ProtocolTCP,
 		CapturedLen: 4,
 	}
 

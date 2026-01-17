@@ -24,16 +24,16 @@ const (
 
 // TLS handshake types
 const (
-	tlsHandshakeClientHello        = 1
-	tlsHandshakeServerHello        = 2
-	tlsHandshakeCertificate        = 11
-	tlsHandshakeServerKeyExchange  = 12
-	tlsHandshakeCertificateRequest = 13
-	tlsHandshakeServerHelloDone    = 14
-	tlsHandshakeCertificateVerify  = 15
-	tlsHandshakeClientKeyExchange  = 16
-	tlsHandshakeFinished           = 20
-	tlsHandshakeEncryptedExtensions = 8  // TLS 1.3
+	tlsHandshakeClientHello         = 1
+	tlsHandshakeServerHello         = 2
+	tlsHandshakeCertificate         = 11
+	tlsHandshakeServerKeyExchange   = 12
+	tlsHandshakeCertificateRequest  = 13
+	tlsHandshakeServerHelloDone     = 14
+	tlsHandshakeCertificateVerify   = 15
+	tlsHandshakeClientKeyExchange   = 16
+	tlsHandshakeFinished            = 20
+	tlsHandshakeEncryptedExtensions = 8 // TLS 1.3
 )
 
 // TLS extension types
@@ -135,6 +135,10 @@ func (d *TLSDissector) Parse(data []byte, pkt *model.Packet) error {
 		offset += 5 + int(length)
 	}
 
+	if info.Version == 0 {
+		info.Version = info.RecordVersion
+	}
+
 	pkt.ApplicationProtocol = "TLS"
 	pkt.TLSInfo = info
 
@@ -159,9 +163,15 @@ func (d *TLSDissector) parseHandshake(data []byte, info *model.TLSInfo) {
 		case tlsHandshakeClientHello:
 			info.ClientHello = d.parseClientHello(hsData)
 			info.IsClientHello = true
+			if info.Version == 0 && info.ClientHello != nil {
+				info.Version = info.ClientHello.Version
+			}
 		case tlsHandshakeServerHello:
 			info.ServerHello = d.parseServerHello(hsData)
 			info.IsServerHello = true
+			if info.ServerHello != nil && info.ServerHello.Version != 0 {
+				info.Version = info.ServerHello.Version
+			}
 		case tlsHandshakeCertificate:
 			certs := d.parseCertificates(hsData)
 			info.Certificates = certs
@@ -233,6 +243,9 @@ func (d *TLSDissector) parseClientHello(data []byte) *model.TLSClientHello {
 	}
 	extLen := int(binary.BigEndian.Uint16(data[offset : offset+2]))
 	offset += 2
+	if offset+extLen > len(data) {
+		return ch
+	}
 
 	d.parseExtensions(data[offset:offset+extLen], ch, nil)
 

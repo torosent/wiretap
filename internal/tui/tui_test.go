@@ -509,7 +509,7 @@ func TestRun_UsesFilterAndLoads(t *testing.T) {
 	}
 	t.Cleanup(func() { runApp = oldRunApp })
 
-	if err := Run(pcapPath, "", "tcp", "dark"); err != nil {
+	if err := Run(pcapPath, "", "tcp", "dark", "", nil); err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
 	if got == nil {

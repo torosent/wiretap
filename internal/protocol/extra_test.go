@@ -16,7 +16,7 @@ type stubDissector struct {
 	parsed bool
 }
 
-func (s *stubDissector) Name() string { return s.name }
+func (s *stubDissector) Name() string            { return s.name }
 func (s *stubDissector) Detect(data []byte) bool { return s.detect }
 func (s *stubDissector) Parse(data []byte, pkt *model.Packet) error {
 	s.parsed = true
@@ -99,6 +99,7 @@ func TestHTTP1StreamParser(t *testing.T) {
 
 func TestHTTP2ParseHeadersFrame(t *testing.T) {
 	d := NewHTTP2Dissector()
+	decoder := hpack.NewDecoder(4096, nil)
 
 	var buf bytes.Buffer
 	encoder := hpack.NewEncoder(&buf)
@@ -106,7 +107,7 @@ func TestHTTP2ParseHeadersFrame(t *testing.T) {
 	_ = encoder.WriteField(hpack.HeaderField{Name: ":path", Value: "/"})
 
 	frame := &model.HTTP2Frame{Payload: buf.Bytes(), Flags: http2.FlagHeadersEndHeaders}
-	d.parseHeadersFrame(frame)
+	d.parseHeadersFrame(frame, decoder)
 	if len(frame.Headers) == 0 {
 		t.Fatal("Expected headers to be parsed")
 	}

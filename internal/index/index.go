@@ -17,74 +17,74 @@ import (
 
 // Index format constants
 const (
-	MagicNumber    uint32 = 0x57545049 // "WTPI" - WireTap Index
-	CurrentVersion uint32 = 1
-	HeaderSize     int    = 64
-	PacketEntrySize int   = 48
-	ConnectionEntrySize int = 72
+	MagicNumber         uint32 = 0x57545049 // "WTPI" - WireTap Index
+	CurrentVersion      uint32 = 1
+	HeaderSize          int    = 64
+	PacketEntrySize     int    = 48
+	ConnectionEntrySize int    = 72
 )
 
 // Common errors
 var (
-	ErrInvalidMagic   = errors.New("invalid index magic number")
+	ErrInvalidMagic    = errors.New("invalid index magic number")
 	ErrVersionMismatch = errors.New("index version mismatch")
-	ErrCorruptedIndex = errors.New("corrupted index file")
-	ErrIndexNotOpen   = errors.New("index not open")
-	ErrOutOfBounds    = errors.New("index out of bounds")
+	ErrCorruptedIndex  = errors.New("corrupted index file")
+	ErrIndexNotOpen    = errors.New("index not open")
+	ErrOutOfBounds     = errors.New("index out of bounds")
 )
 
 // IndexHeader represents the header of an index file.
 type IndexHeader struct {
-	Magic            uint32
-	Version          uint32
-	PacketCount      uint64
-	ConnectionCount  uint64
-	CreatedAt        int64
-	PcapFileSize     int64
-	PcapFileMD5      [16]byte
-	Reserved         [8]byte
+	Magic           uint32
+	Version         uint32
+	PacketCount     uint64
+	ConnectionCount uint64
+	CreatedAt       int64
+	PcapFileSize    int64
+	PcapFileMD5     [16]byte
+	Reserved        [8]byte
 }
 
 // PacketIndexEntry represents a single packet's index entry.
 // Size: 48 bytes
 type PacketIndexEntry struct {
-	Offset      int64    // Offset in pcap file
-	Length      uint32   // Packet length
-	Timestamp   int64    // Unix nanoseconds
-	Protocol    uint16   // Protocol identifier
-	Flags       uint16   // TCP flags or other metadata
-	ConnID      uint32   // Connection ID (index into connection table)
-	SrcPort     uint16   // Source port
-	DstPort     uint16   // Destination port
-	Reserved    [8]byte  // Reserved for future use
+	Offset    int64   // Offset in pcap file
+	Length    uint32  // Packet length
+	Timestamp int64   // Unix nanoseconds
+	Protocol  uint16  // Protocol identifier
+	Flags     uint16  // TCP flags or other metadata
+	ConnID    uint32  // Connection ID (index into connection table)
+	SrcPort   uint16  // Source port
+	DstPort   uint16  // Destination port
+	Reserved  [8]byte // Reserved for future use
 }
 
 // ConnectionIndexEntry represents a connection's index entry.
 // Size: 64 bytes
 type ConnectionIndexEntry struct {
-	SrcIP         [16]byte // IPv4 or IPv6 address
-	DstIP         [16]byte // IPv4 or IPv6 address
-	SrcPort       uint16
-	DstPort       uint16
-	Protocol      uint16
-	IsIPv6        uint8
-	State         uint8
-	FirstPacket   uint64   // Index of first packet
-	LastPacket    uint64   // Index of last packet
-	PacketCount   uint32
-	ByteCount     uint64
-	Reserved      [4]byte
+	SrcIP       [16]byte // IPv4 or IPv6 address
+	DstIP       [16]byte // IPv4 or IPv6 address
+	SrcPort     uint16
+	DstPort     uint16
+	Protocol    uint16
+	IsIPv6      uint8
+	State       uint8
+	FirstPacket uint64 // Index of first packet
+	LastPacket  uint64 // Index of last packet
+	PacketCount uint32
+	ByteCount   uint64
+	Reserved    [4]byte
 }
 
 // Index provides read access to a memory-mapped packet index.
 type Index struct {
-	mu          sync.RWMutex
-	file        *os.File
-	data        mmap.MMap
-	header      *IndexHeader
-	packetBase  int
-	connBase    int
-	pcapPath    string
+	mu         sync.RWMutex
+	file       *os.File
+	data       mmap.MMap
+	header     *IndexHeader
+	packetBase int
+	connBase   int
+	pcapPath   string
 }
 
 // Open opens an existing index file.
@@ -182,7 +182,7 @@ func (idx *Index) Close() error {
 func (idx *Index) PacketCount() uint64 {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
-	
+
 	if idx.header == nil {
 		return 0
 	}
@@ -193,7 +193,7 @@ func (idx *Index) PacketCount() uint64 {
 func (idx *Index) ConnectionCount() uint64 {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
-	
+
 	if idx.header == nil {
 		return 0
 	}
@@ -354,7 +354,7 @@ func (idx *Index) SearchByIP(ip net.IP) ([]*PacketIndexEntry, error) {
 	var matchingConns []uint64
 	for i := uint64(0); i < idx.header.ConnectionCount; i++ {
 		conn, _ := idx.GetConnection(i)
-		
+
 		var srcIP, dstIP net.IP
 		if conn.IsIPv6 == 1 {
 			srcIP = net.IP(conn.SrcIP[:])
@@ -428,11 +428,11 @@ func (idx *Index) SearchByProtocol(protocol model.Protocol) ([]*PacketIndexEntry
 func (idx *Index) Header() *IndexHeader {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
-	
+
 	if idx.header == nil {
 		return nil
 	}
-	
+
 	h := *idx.header
 	return &h
 }

@@ -1,15 +1,18 @@
 package cli
 
 import (
+	"context"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/gopacket/gopacket"
 	"github.com/spf13/cobra"
 	"github.com/wiretap/wiretap/internal/capture"
 	"github.com/wiretap/wiretap/internal/crypto"
@@ -46,11 +49,15 @@ func init() {
 	exportCmd.Flags().StringP("format", "f", "json", "output format (json, csv, jsonl, har)")
 	exportCmd.Flags().IntP("count", "c", 0, "maximum packets to export (0 = all)")
 	exportCmd.Flags().String("filter", "", "BPF filter expression")
-	exportCmd.Flags().StringSlice("protocol", nil, "filter by protocol (http, tls, dns)")
+	exportCmd.Flags().StringSlice("protocol", nil, "filter by protocol (http, http2, tls, dns, grpc, websocket, tcp, udp, icmp)")
 	exportCmd.Flags().Bool("dissect", true, "include protocol dissection")
 	exportCmd.Flags().Bool("pretty", false, "pretty-print JSON output")
 	exportCmd.Flags().Bool("decrypt", false, "enable TLS decryption (requires --keylog)")
 	exportCmd.Flags().String("keylog", "", "path to NSS SSLKEYLOGFILE for TLS decryption")
+	exportCmd.Flags().String("plugin-dir", "", "directory containing WASM plugins")
+	exportCmd.Flags().StringSlice("plugin", nil, "WASM plugin file(s) to load")
+	exportCmd.Flags().StringSlice("proto-dir", nil, "directories containing .pb descriptor sets for gRPC decoding")
+	exportCmd.Flags().StringSlice("proto-file", nil, "individual .pb descriptor sets for gRPC decoding")
 
 	exportCmd.MarkFlagRequired("output")
 }
@@ -82,6 +89,24 @@ func runExport(cmd *cobra.Command, args []string) error {
 	pretty, _ := cmd.Flags().GetBool("pretty")
 	decrypt, _ := cmd.Flags().GetBool("decrypt")
 	keylogFile, _ := cmd.Flags().GetString("keylog")
+	pluginDir, _ := cmd.Flags().GetString("plugin-dir")
+	pluginFiles, _ := cmd.Flags().GetStringSlice("plugin")
+	protoDirs, _ := cmd.Flags().GetStringSlice("proto-dir")
+	protoFiles, _ := cmd.Flags().GetStringSlice("proto-file")
+
+	cfg := GetConfig()
+	if !cmd.Flags().Changed("plugin-dir") {
+		pluginDir = cfg.Plugins.Directory
+	}
+	if !cmd.Flags().Changed("plugin") {
+		pluginFiles = cfg.Plugins.Enabled
+	}
+	if !cmd.Flags().Changed("proto-dir") {
+		protoDirs = cfg.Protocols.GRPC.ProtoDirs
+	}
+	if !cmd.Flags().Changed("proto-file") {
+		protoFiles = cfg.Protocols.GRPC.ProtoFiles
+	}
 
 	// Validate TLS decryption flags
 	if decrypt && keylogFile == "" {
@@ -119,15 +144,16 @@ func runExport(cmd *cobra.Command, args []string) error {
 	}
 	defer reader.Close()
 
-	// Note: BPF filter for offline files would require re-implementation
-	_ = bpfFilter
-
 	// Create output file
 	outFile, err := os.Create(outputFile)
 	if err != nil {
 		return fmt.Errorf("failed to create output file: %w", err)
 	}
 	defer outFile.Close()
+
+	if err := protocol.ConfigureGRPCDissector(protoDirs, protoFiles); err != nil {
+		return fmt.Errorf("failed to load gRPC descriptors: %w", err)
+	}
 
 	// Create dissector registry (with or without TLS decryption)
 	var registry *protocol.DissectorRegistry
@@ -136,6 +162,20 @@ func runExport(cmd *cobra.Command, args []string) error {
 		fmt.Println("TLS decryption enabled")
 	} else {
 		registry = protocol.NewRegistry()
+	}
+
+	pluginMgr, err := loadAndRegisterPlugins(registry, pluginDir, pluginFiles)
+	if err != nil {
+		return fmt.Errorf("failed to load plugins: %w", err)
+	}
+	if pluginMgr != nil {
+		defer pluginMgr.Close(context.Background())
+	}
+
+	// Compile offline BPF filter if provided
+	bpf, err := compileBPFFilter(reader.LinkType(), bpfFilter)
+	if err != nil {
+		return fmt.Errorf("invalid BPF filter: %w", err)
 	}
 
 	// Collect packets
@@ -148,38 +188,52 @@ func runExport(cmd *cobra.Command, args []string) error {
 		harLog = newHAR()
 	}
 
-	iter := capture.NewPacketIterator(reader)
 	for {
-		pkt, ok := iter.Next()
-		if !ok {
-			break
+		ci, data, err := reader.ReadPacket()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return fmt.Errorf("read packet: %w", err)
 		}
+
 		packetNum++
 
-		// Protocol filter
-		if len(protocols) > 0 {
-			protoMatch := false
-			pktProto := strings.ToLower(pkt.Protocol.String())
-			for _, p := range protocols {
-				if strings.ToLower(p) == pktProto {
-					protoMatch = true
-					break
-				}
-			}
-			if !protoMatch {
-				continue
-			}
+		// Apply BPF filter if provided
+		if bpf != nil && !bpf.Matches(ci, data) {
+			continue
 		}
 
-		exported++
+		rawPacket := gopacket.NewPacket(data, reader.LinkType(), gopacket.Default)
+		meta := rawPacket.Metadata()
+		meta.Timestamp = ci.Timestamp
+		meta.CaptureLength = ci.CaptureLength
+		meta.Length = ci.Length
+
+		pkt := capture.ParsePacket(rawPacket)
+		pkt.Index = uint64(packetNum)
+
+		// Protocol filter
+		if !packetMatchesProtocols(pkt, protocols, registry) {
+			continue
+		}
 
 		// Create export packet
+		srcIP := ""
+		if pkt.SrcIP != nil {
+			srcIP = pkt.SrcIP.String()
+		}
+		dstIP := ""
+		if pkt.DstIP != nil {
+			dstIP = pkt.DstIP.String()
+		}
+
 		ep := ExportPacket{
 			Number:      packetNum,
 			Timestamp:   pkt.Timestamp.Format("2006-01-02T15:04:05.000000Z07:00"),
 			TimestampNs: pkt.Timestamp.UnixNano(),
-			SrcIP:       pkt.SrcIP.String(),
-			DstIP:       pkt.DstIP.String(),
+			SrcIP:       srcIP,
+			DstIP:       dstIP,
 			SrcPort:     pkt.SrcPort,
 			DstPort:     pkt.DstPort,
 			Protocol:    pkt.Protocol.String(),
@@ -205,6 +259,11 @@ func runExport(cmd *cobra.Command, args []string) error {
 				harLog.Log.Entries = append(harLog.Log.Entries, *entry)
 				exported++
 			}
+		} else if format == "jsonl" {
+			data, _ := json.Marshal(ep)
+			outFile.Write(data)
+			outFile.WriteString("\n")
+			exported++
 		} else {
 			packets = append(packets, ep)
 			exported++
@@ -213,13 +272,6 @@ func runExport(cmd *cobra.Command, args []string) error {
 		// Check count limit
 		if count > 0 && exported >= count {
 			break
-		}
-
-		// For JSONL, write immediately
-		if format == "jsonl" {
-			data, _ := json.Marshal(ep)
-			outFile.Write(data)
-			outFile.WriteString("\n")
 		}
 	}
 
@@ -279,9 +331,9 @@ type HAR struct {
 }
 
 type HARLog struct {
-	Version string      `json:"version"`
-	Creator HARCreator  `json:"creator"`
-	Entries []HAREntry  `json:"entries"`
+	Version string     `json:"version"`
+	Creator HARCreator `json:"creator"`
+	Entries []HAREntry `json:"entries"`
 }
 
 type HARCreator struct {
@@ -290,35 +342,35 @@ type HARCreator struct {
 }
 
 type HAREntry struct {
-	StartedDateTime string     `json:"startedDateTime"`
-	Time            float64    `json:"time"`
-	Request         HARRequest `json:"request"`
+	StartedDateTime string      `json:"startedDateTime"`
+	Time            float64     `json:"time"`
+	Request         HARRequest  `json:"request"`
 	Response        HARResponse `json:"response"`
-	Cache           HARCache   `json:"cache"`
-	Timings         HARTimings `json:"timings"`
+	Cache           HARCache    `json:"cache"`
+	Timings         HARTimings  `json:"timings"`
 }
 
 type HARRequest struct {
-	Method      string        `json:"method"`
-	URL         string        `json:"url"`
-	HTTPVersion string        `json:"httpVersion"`
+	Method      string         `json:"method"`
+	URL         string         `json:"url"`
+	HTTPVersion string         `json:"httpVersion"`
 	Headers     []HARNameValue `json:"headers"`
 	QueryString []HARNameValue `json:"queryString"`
-	Cookies     []HARCookie   `json:"cookies"`
-	HeadersSize int64         `json:"headersSize"`
-	BodySize    int64         `json:"bodySize"`
+	Cookies     []HARCookie    `json:"cookies"`
+	HeadersSize int64          `json:"headersSize"`
+	BodySize    int64          `json:"bodySize"`
 }
 
 type HARResponse struct {
-	Status      int           `json:"status"`
-	StatusText  string        `json:"statusText"`
-	HTTPVersion string        `json:"httpVersion"`
+	Status      int            `json:"status"`
+	StatusText  string         `json:"statusText"`
+	HTTPVersion string         `json:"httpVersion"`
 	Headers     []HARNameValue `json:"headers"`
-	Cookies     []HARCookie   `json:"cookies"`
-	Content     HARContent    `json:"content"`
-	RedirectURL string        `json:"redirectURL"`
-	HeadersSize int64         `json:"headersSize"`
-	BodySize    int64         `json:"bodySize"`
+	Cookies     []HARCookie    `json:"cookies"`
+	Content     HARContent     `json:"content"`
+	RedirectURL string         `json:"redirectURL"`
+	HeadersSize int64          `json:"headersSize"`
+	BodySize    int64          `json:"bodySize"`
 }
 
 type HARContent struct {

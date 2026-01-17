@@ -286,14 +286,14 @@ func (d *TLSDecryptingDissector) tryDecryptRecordsWithState(data []byte, pkt *mo
 func (d *TLSDecryptingDissector) determineDirection(pkt *model.Packet) bool {
 	// Common TLS server ports
 	serverPorts := map[uint16]bool{
-		443:   true, // HTTPS
-		8443:  true, // HTTPS alt
-		993:   true, // IMAPS
-		995:   true, // POP3S
-		465:   true, // SMTPS
-		636:   true, // LDAPS
-		853:   true, // DNS over TLS
-		5061:  true, // SIPS
+		443:  true, // HTTPS
+		8443: true, // HTTPS alt
+		993:  true, // IMAPS
+		995:  true, // POP3S
+		465:  true, // SMTPS
+		636:  true, // LDAPS
+		853:  true, // DNS over TLS
+		5061: true, // SIPS
 	}
 
 	// If destination port is a known server port, it's client-to-server

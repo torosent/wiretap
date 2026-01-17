@@ -337,9 +337,9 @@ type TLSCertificateInfo struct {
 	SerialNumber string
 
 	// Validity flags
-	IsExpired      bool
-	IsNotYetValid  bool
-	IsSelfSigned   bool
+	IsExpired     bool
+	IsNotYetValid bool
+	IsSelfSigned  bool
 }
 
 // NewTLSCertificateInfo creates a TLSCertificateInfo from an x509.Certificate.

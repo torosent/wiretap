@@ -18,7 +18,7 @@ import (
 
 // Common errors.
 var (
-	ErrInvalidPcapFile = errors.New("invalid pcap file")
+	ErrInvalidPcapFile   = errors.New("invalid pcap file")
 	ErrUnsupportedFormat = errors.New("unsupported file format")
 )
 
@@ -79,6 +79,7 @@ func OpenPcap(path string) (*PcapReader, error) {
 		if err != nil {
 			// Fall back to pcap handle
 			file.Close()
+			reader.file = nil
 			handle, err := pcap.OpenOffline(path)
 			if err != nil {
 				return nil, fmt.Errorf("failed to open pcap: %w", err)
@@ -102,6 +103,11 @@ func (r *PcapReader) LinkType() layers.LinkType {
 // Path returns the file path.
 func (r *PcapReader) Path() string {
 	return r.path
+}
+
+// IsPcapng returns true if the capture file is pcapng.
+func (r *PcapReader) IsPcapng() bool {
+	return r.isPcapng
 }
 
 // ReadPacket reads the next packet from the file.
@@ -141,7 +147,7 @@ func (r *PcapReader) ReadAll(handler PacketHandler) error {
 
 		// Parse packet
 		rawPacket := gopacket.NewPacket(data, r.linkType, gopacket.Default)
-		
+
 		// Set metadata
 		meta := rawPacket.Metadata()
 		meta.Timestamp = ci.Timestamp

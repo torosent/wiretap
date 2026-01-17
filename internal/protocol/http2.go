@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/wiretap/wiretap/internal/model"
 	"golang.org/x/net/http2"
@@ -16,15 +17,11 @@ import (
 var http2Preface = []byte("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
 
 // HTTP2Dissector parses HTTP/2 protocol traffic (cleartext h2c).
-type HTTP2Dissector struct {
-	decoder *hpack.Decoder
-}
+type HTTP2Dissector struct{}
 
 // NewHTTP2Dissector creates a new HTTP/2 dissector.
 func NewHTTP2Dissector() *HTTP2Dissector {
-	return &HTTP2Dissector{
-		decoder: hpack.NewDecoder(4096, nil),
-	}
+	return &HTTP2Dissector{}
 }
 
 // Name returns the dissector name.
@@ -118,15 +115,15 @@ func (d *HTTP2Dissector) Detect(data []byte) bool {
 // Parse extracts HTTP/2 frame information.
 func (d *HTTP2Dissector) Parse(data []byte, pkt *model.Packet) error {
 	// Skip connection preface if present
-	if bytes.HasPrefix(data, http2Preface) {
-		data = data[len(http2Preface):]
-	}
+	data = bytes.TrimPrefix(data, http2Preface)
+
+	decoder := hpack.NewDecoder(4096, nil) // Per-parse decoder to avoid cross-connection state bleed.
 
 	if len(data) < 9 {
 		return ErrIncompleteData
 	}
 
-	frames, err := d.parseFrames(data)
+	frames, err := d.parseFrames(data, decoder)
 	if err != nil {
 		return err
 	}
@@ -148,16 +145,98 @@ func (d *HTTP2Dissector) Parse(data []byte, pkt *model.Packet) error {
 		}
 	}
 
+	// Attempt gRPC parsing from HTTP/2 DATA frames when content-type is application/grpc.
+	if grpcMessages := d.extractGRPCMessages(frames); len(grpcMessages) > 0 {
+		pkt.GRPCMessages = grpcMessages
+		pkt.ApplicationProtocol = "gRPC"
+		if pkt.AppInfo == "" {
+			pkt.AppInfo = grpcMessages[0].Summary()
+		}
+	}
+
 	return nil
 }
 
+type grpcStreamInfo struct {
+	method    string
+	isRequest bool
+}
+
+func (d *HTTP2Dissector) extractGRPCMessages(frames []*model.HTTP2Frame) []*model.GRPCMessage {
+	grpcStreams := make(map[uint32]grpcStreamInfo)
+	dataByStream := make(map[uint32]*bytes.Buffer)
+
+	for _, frame := range frames {
+		if frame.Type != http2.FrameHeaders {
+			continue
+		}
+
+		var contentType string
+		var method string
+		var path string
+		for _, h := range frame.Headers {
+			name := strings.ToLower(h.Name)
+			switch name {
+			case ":method":
+				method = h.Value
+			case ":path":
+				path = h.Value
+			case "content-type":
+				contentType = h.Value
+			}
+		}
+
+		if strings.Contains(strings.ToLower(contentType), "application/grpc") {
+			grpcStreams[frame.StreamID] = grpcStreamInfo{method: path, isRequest: method != ""}
+		}
+	}
+
+	if len(grpcStreams) == 0 {
+		return nil
+	}
+
+	for _, frame := range frames {
+		if frame.Type != http2.FrameData {
+			continue
+		}
+		if _, ok := grpcStreams[frame.StreamID]; !ok {
+			continue
+		}
+		buf := dataByStream[frame.StreamID]
+		if buf == nil {
+			buf = &bytes.Buffer{}
+			dataByStream[frame.StreamID] = buf
+		}
+		buf.Write(frame.Payload)
+	}
+
+	if len(dataByStream) == 0 {
+		return nil
+	}
+
+	grpcDissector := DefaultGRPCDissector()
+	var messages []*model.GRPCMessage
+
+	for streamID, buf := range dataByStream {
+		msgs, _ := grpcDissector.parseFrames(buf.Bytes())
+		info := grpcStreams[streamID]
+		for _, msg := range msgs {
+			msg.ServiceMethod = info.method
+			msg.IsRequest = info.isRequest
+			messages = append(messages, msg)
+		}
+	}
+
+	return messages
+}
+
 // parseFrames extracts all HTTP/2 frames from the data.
-func (d *HTTP2Dissector) parseFrames(data []byte) ([]*model.HTTP2Frame, error) {
+func (d *HTTP2Dissector) parseFrames(data []byte, decoder *hpack.Decoder) ([]*model.HTTP2Frame, error) {
 	var frames []*model.HTTP2Frame
 	reader := bytes.NewReader(data)
 
 	for {
-		frame, err := d.parseFrame(reader)
+		frame, err := d.parseFrame(reader, decoder)
 		if err == io.EOF {
 			break
 		}
@@ -172,7 +251,7 @@ func (d *HTTP2Dissector) parseFrames(data []byte) ([]*model.HTTP2Frame, error) {
 }
 
 // parseFrame parses a single HTTP/2 frame.
-func (d *HTTP2Dissector) parseFrame(r *bytes.Reader) (*model.HTTP2Frame, error) {
+func (d *HTTP2Dissector) parseFrame(r *bytes.Reader, decoder *hpack.Decoder) (*model.HTTP2Frame, error) {
 	// Read 9-byte frame header
 	header := make([]byte, 9)
 	if _, err := io.ReadFull(r, header); err != nil {
@@ -213,7 +292,7 @@ func (d *HTTP2Dissector) parseFrame(r *bytes.Reader) (*model.HTTP2Frame, error) 
 	// Parse frame-specific data
 	switch frameType {
 	case http2.FrameHeaders:
-		d.parseHeadersFrame(frame)
+		d.parseHeadersFrame(frame, decoder)
 	case http2.FrameData:
 		// Data frames don't need special parsing
 	case http2.FrameSettings:
@@ -232,7 +311,7 @@ func (d *HTTP2Dissector) parseFrame(r *bytes.Reader) (*model.HTTP2Frame, error) 
 }
 
 // parseHeadersFrame decodes HPACK headers.
-func (d *HTTP2Dissector) parseHeadersFrame(frame *model.HTTP2Frame) {
+func (d *HTTP2Dissector) parseHeadersFrame(frame *model.HTTP2Frame, decoder *hpack.Decoder) {
 	payload := frame.Payload
 
 	// Check for padding
@@ -249,14 +328,14 @@ func (d *HTTP2Dissector) parseHeadersFrame(frame *model.HTTP2Frame) {
 	}
 
 	// Decode HPACK
-	d.decoder.SetEmitFunc(func(hf hpack.HeaderField) {
+	decoder.SetEmitFunc(func(hf hpack.HeaderField) {
 		frame.Headers = append(frame.Headers, model.Header{
 			Name:  hf.Name,
 			Value: hf.Value,
 		})
 	})
 
-	if _, err := d.decoder.Write(payload); err != nil {
+	if _, err := decoder.Write(payload); err != nil {
 		// Decoding failed, headers remain empty
 		return
 	}

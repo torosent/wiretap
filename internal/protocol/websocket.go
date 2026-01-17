@@ -30,7 +30,7 @@ const (
 
 // Common WebSocket errors.
 var (
-	ErrInvalidWebSocketFrame = errors.New("invalid WebSocket frame")
+	ErrInvalidWebSocketFrame  = errors.New("invalid WebSocket frame")
 	ErrWebSocketFrameTooLarge = errors.New("WebSocket frame too large")
 )
 

@@ -9,11 +9,12 @@ import (
 	"time"
 
 	"github.com/gopacket/gopacket"
-	"github.com/gopacket/gopacket/layers"
 	"github.com/spf13/cobra"
 
 	"github.com/wiretap/wiretap/internal/capture"
+	"github.com/wiretap/wiretap/internal/filter"
 	"github.com/wiretap/wiretap/internal/model"
+	"github.com/wiretap/wiretap/internal/protocol"
 )
 
 type liveCapture interface {
@@ -61,13 +62,19 @@ func init() {
 	captureCmd.Flags().Bool("stats", false, "show capture statistics on exit")
 	captureCmd.Flags().Bool("decrypt", false, "enable TLS decryption (requires --keylog)")
 	captureCmd.Flags().String("keylog", "", "path to NSS SSLKEYLOGFILE for TLS decryption")
-	captureCmd.Flags().StringSlice("proto-dir", nil, "directories containing .proto descriptor files for gRPC decoding")
-	captureCmd.Flags().StringSlice("proto-file", nil, "individual .proto descriptor files for gRPC decoding")
+	captureCmd.Flags().StringSlice("proto-dir", nil, "directories containing .pb descriptor sets for gRPC decoding")
+	captureCmd.Flags().StringSlice("proto-file", nil, "individual .pb descriptor sets for gRPC decoding")
+	captureCmd.Flags().StringSlice("include-domain", nil, "include domains (wildcards or /regex/)")
+	captureCmd.Flags().StringSlice("exclude-domain", nil, "exclude domains (wildcards or /regex/)")
+	captureCmd.Flags().StringSlice("include-ip", nil, "include IPs or CIDRs")
+	captureCmd.Flags().StringSlice("exclude-ip", nil, "exclude IPs or CIDRs")
+	captureCmd.Flags().StringSlice("include-port", nil, "include ports or ranges (e.g., 80,443,8000-8080)")
+	captureCmd.Flags().StringSlice("exclude-port", nil, "exclude ports or ranges (e.g., 22,3306)")
 }
 
 func runCapture(cmd *cobra.Command, args []string) error {
 	iface, _ := cmd.Flags().GetString("interface")
-	filter, _ := cmd.Flags().GetString("filter")
+	bpfFilter, _ := cmd.Flags().GetString("filter")
 	outputFile, _ := cmd.Flags().GetString("write")
 	count, _ := cmd.Flags().GetInt("count")
 	snaplen, _ := cmd.Flags().GetInt("snaplen")
@@ -78,6 +85,48 @@ func runCapture(cmd *cobra.Command, args []string) error {
 	keylogFile, _ := cmd.Flags().GetString("keylog")
 	protoDirs, _ := cmd.Flags().GetStringSlice("proto-dir")
 	protoFiles, _ := cmd.Flags().GetStringSlice("proto-file")
+	includeDomains, _ := cmd.Flags().GetStringSlice("include-domain")
+	excludeDomains, _ := cmd.Flags().GetStringSlice("exclude-domain")
+	includeIPs, _ := cmd.Flags().GetStringSlice("include-ip")
+	excludeIPs, _ := cmd.Flags().GetStringSlice("exclude-ip")
+	includePorts, _ := cmd.Flags().GetStringSlice("include-port")
+	excludePorts, _ := cmd.Flags().GetStringSlice("exclude-port")
+
+	// Apply config defaults when flags are not set
+	cfg := GetConfig()
+	if iface == "" && !cmd.Flags().Changed("interface") && cfg.Capture.Interface != "" {
+		iface = cfg.Capture.Interface
+	}
+	if !cmd.Flags().Changed("snaplen") {
+		snaplen = cfg.Capture.Snaplen
+	}
+	if !cmd.Flags().Changed("promisc") {
+		promisc = cfg.Capture.Promiscuous
+	}
+
+	pcapTimeout := cfg.Capture.Timeout
+	if pcapTimeout <= 0 {
+		pcapTimeout = time.Second
+	}
+
+	if !cmd.Flags().Changed("include-domain") {
+		includeDomains = cfg.Filter.IncludeDomains
+	}
+	if !cmd.Flags().Changed("exclude-domain") {
+		excludeDomains = cfg.Filter.ExcludeDomains
+	}
+	if !cmd.Flags().Changed("include-ip") {
+		includeIPs = cfg.Filter.IncludeIPs
+	}
+	if !cmd.Flags().Changed("exclude-ip") {
+		excludeIPs = cfg.Filter.ExcludeIPs
+	}
+	if !cmd.Flags().Changed("include-port") {
+		includePorts = cfg.Filter.IncludePorts
+	}
+	if !cmd.Flags().Changed("exclude-port") {
+		excludePorts = cfg.Filter.ExcludePorts
+	}
 
 	// Validate TLS decryption flags
 	if decrypt && keylogFile == "" {
@@ -119,12 +168,30 @@ func runCapture(cmd *cobra.Command, args []string) error {
 		Interface:      iface,
 		SnapLen:        int32(snaplen),
 		Promiscuous:    promisc,
-		Timeout:        time.Second, // pcap read timeout
-		BPFFilter:      filter,
+		Timeout:        pcapTimeout, // pcap read timeout
+		BPFFilter:      bpfFilter,
 		TLSDecrypt:     decrypt,
 		TLSKeyLogFile:  keylogFile,
 		GRPCProtoDirs:  protoDirs,
 		GRPCProtoFiles: protoFiles,
+	}
+
+	// Build include/exclude filters
+	packetFilter, err := newPacketFilter(&filter.FilterConfig{
+		IncludeDomains: includeDomains,
+		ExcludeDomains: excludeDomains,
+		IncludeIPs:     includeIPs,
+		ExcludeIPs:     excludeIPs,
+		IncludePorts:   includePorts,
+		ExcludePorts:   excludePorts,
+	})
+	if err != nil {
+		return fmt.Errorf("invalid filters: %w", err)
+	}
+
+	var registry *protocol.DissectorRegistry
+	if packetFilter != nil && packetFilter.needsDomain() {
+		registry = protocol.NewRegistry()
 	}
 
 	// Create capture instance
@@ -139,7 +206,12 @@ func runCapture(cmd *cobra.Command, args []string) error {
 		}
 		defer file.Close()
 
-		writer, err = capture.NewPcapWriter(file, layers.LinkTypeEthernet)
+		linkType, err := capture.LinkTypeForInterface(opts.Interface, opts.SnapLen, opts.Promiscuous, opts.Timeout)
+		if err != nil {
+			return fmt.Errorf("failed to determine link type: %w", err)
+		}
+
+		writer, err = capture.NewPcapWriter(file, linkType)
 		if err != nil {
 			return fmt.Errorf("failed to create pcap writer: %w", err)
 		}
@@ -166,8 +238,8 @@ func runCapture(cmd *cobra.Command, args []string) error {
 
 	// Print capture info
 	fmt.Printf("Capturing on interface %s\n", iface)
-	if filter != "" {
-		fmt.Printf("Filter: %s\n", filter)
+	if bpfFilter != "" {
+		fmt.Printf("Filter: %s\n", bpfFilter)
 	}
 	if outputFile != "" {
 		fmt.Printf("Writing to: %s\n", outputFile)
@@ -177,6 +249,16 @@ func runCapture(cmd *cobra.Command, args []string) error {
 
 	// Set packet handler
 	cap.SetHandler(func(pkt *model.Packet) {
+		if packetFilter != nil {
+			if packetFilter.needsDomain() && registry != nil && len(pkt.Payload) > 0 {
+				_ = registry.Parse(pkt.Payload, pkt)
+			}
+			domain := extractPacketDomain(pkt)
+			if !packetFilter.matches(pkt, domain) {
+				return
+			}
+		}
+
 		packetCount++
 
 		// Write to file if output is specified

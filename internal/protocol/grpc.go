@@ -30,7 +30,7 @@ const (
 
 // Common gRPC errors.
 var (
-	ErrInvalidGRPCFrame = errors.New("invalid gRPC frame")
+	ErrInvalidGRPCFrame  = errors.New("invalid gRPC frame")
 	ErrGRPCFrameTooLarge = errors.New("gRPC frame too large")
 	ErrProtoNotFound     = errors.New("protobuf descriptor not found")
 )
@@ -43,12 +43,45 @@ type GRPCDissector struct {
 	protoDirs []string // Directories to search for .proto files
 }
 
+var defaultGRPCMu sync.Mutex
+var defaultGRPCDissector = NewGRPCDissector()
+
 // NewGRPCDissector creates a new gRPC dissector.
 func NewGRPCDissector() *GRPCDissector {
 	return &GRPCDissector{
 		registry: new(protoregistry.Files),
 		types:    new(protoregistry.Types),
 	}
+}
+
+// DefaultGRPCDissector returns the shared gRPC dissector instance.
+func DefaultGRPCDissector() *GRPCDissector {
+	defaultGRPCMu.Lock()
+	defer defaultGRPCMu.Unlock()
+	if defaultGRPCDissector == nil {
+		defaultGRPCDissector = NewGRPCDissector()
+	}
+	return defaultGRPCDissector
+}
+
+// ConfigureGRPCDissector loads proto descriptor sets into the shared dissector.
+func ConfigureGRPCDissector(protoDirs, protoFiles []string) error {
+	d := NewGRPCDissector()
+	for _, dir := range protoDirs {
+		if err := d.LoadProtoDir(dir); err != nil {
+			return err
+		}
+	}
+	for _, file := range protoFiles {
+		if err := d.LoadProtoFile(file); err != nil {
+			return err
+		}
+	}
+
+	defaultGRPCMu.Lock()
+	defaultGRPCDissector = d
+	defaultGRPCMu.Unlock()
+	return nil
 }
 
 // Name returns the dissector name.
@@ -179,11 +212,12 @@ func (d *GRPCDissector) decodeProtobuf(data []byte) map[uint32]interface{} {
 	fields := make(map[uint32]interface{})
 	offset := 0
 
+decodeLoop:
 	for offset < len(data) {
 		// Parse field tag.
 		fieldNum, wireType, n := protowire.ConsumeTag(data[offset:])
 		if n < 0 {
-			break
+			break decodeLoop
 		}
 		offset += n
 
@@ -195,7 +229,7 @@ func (d *GRPCDissector) decodeProtobuf(data []byte) map[uint32]interface{} {
 		case protowire.VarintType:
 			v, n := protowire.ConsumeVarint(data[offset:])
 			if n < 0 {
-				break
+				break decodeLoop
 			}
 			value = v
 			consumed = n
@@ -203,7 +237,7 @@ func (d *GRPCDissector) decodeProtobuf(data []byte) map[uint32]interface{} {
 		case protowire.Fixed64Type:
 			v, n := protowire.ConsumeFixed64(data[offset:])
 			if n < 0 {
-				break
+				break decodeLoop
 			}
 			value = v
 			consumed = n
@@ -211,7 +245,7 @@ func (d *GRPCDissector) decodeProtobuf(data []byte) map[uint32]interface{} {
 		case protowire.BytesType:
 			v, n := protowire.ConsumeBytes(data[offset:])
 			if n < 0 {
-				break
+				break decodeLoop
 			}
 			// Try to interpret as string if it looks like UTF-8.
 			if isValidUTF8(v) {
@@ -229,22 +263,22 @@ func (d *GRPCDissector) decodeProtobuf(data []byte) map[uint32]interface{} {
 
 		case protowire.StartGroupType:
 			// Skip groups (deprecated).
-			break
+			break decodeLoop
 
 		case protowire.Fixed32Type:
 			v, n := protowire.ConsumeFixed32(data[offset:])
 			if n < 0 {
-				break
+				break decodeLoop
 			}
 			value = v
 			consumed = n
 
 		default:
-			break
+			break decodeLoop
 		}
 
 		if consumed == 0 {
-			break
+			break decodeLoop
 		}
 
 		offset += consumed

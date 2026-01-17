@@ -160,10 +160,10 @@ pub extern "C" fn plugin_version() -> (i32, i32) {
 
 ```bash
 # Load all plugins from directory
-wiretap capture -i eth0 --plugin-dir ./plugins/
+wiretap read capture.pcap --plugin-dir ./plugins/
 
 # Load specific plugin
-wiretap capture -i eth0 --plugin ./plugins/mqtt-dissector.wasm
+wiretap read capture.pcap --plugin ./plugins/mqtt-dissector.wasm
 
 # Via configuration file
 # ~/.config/wiretap/config.yaml
@@ -179,17 +179,14 @@ plugins:
 Plugins run in a sandboxed WASM environment with:
 
 - **No filesystem access** - Plugins cannot read/write files
-- **No network access** - Plugins cannot make network connections  
+- **No network access** - Plugins cannot make network connections
 - **Memory isolation** - Each plugin has its own memory space
-- **CPU limits** - Execution time is bounded
+
+Note: CPU time limits are not enforced by default.
 
 ## Debugging
 
-Enable plugin debug logging:
-
-```bash
-WIRETAP_PLUGIN_DEBUG=1 wiretap capture -i eth0 --plugin-dir ./plugins/
-```
+There is currently no dedicated plugin debug logging flag or environment variable.
 
 ## Plugin Directory
 

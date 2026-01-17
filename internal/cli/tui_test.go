@@ -11,6 +11,10 @@ func newTUITestCommand() *cobra.Command {
 	cmd.Flags().String("filter", "", "")
 	cmd.Flags().String("interface", "", "")
 	cmd.Flags().String("theme", "default", "")
+	cmd.Flags().String("plugin-dir", "", "")
+	cmd.Flags().StringSlice("plugin", nil, "")
+	cmd.Flags().StringSlice("proto-dir", nil, "")
+	cmd.Flags().StringSlice("proto-file", nil, "")
 	return cmd
 }
 
@@ -19,7 +23,7 @@ func TestRunTUI_Args(t *testing.T) {
 	t.Cleanup(func() { runTUIFn = orig })
 
 	called := false
-	runTUIFn = func(pcapFile, iface, filter, theme string) error {
+	runTUIFn = func(pcapFile, iface, filter, theme, pluginDir string, pluginFiles []string) error {
 		called = true
 		if pcapFile != "capture.pcap" {
 			t.Errorf("pcapFile = %s", pcapFile)
@@ -32,6 +36,13 @@ func TestRunTUI_Args(t *testing.T) {
 		}
 		if theme != "dark" {
 			t.Errorf("theme = %s", theme)
+		}
+		cfg := GetConfig()
+		if pluginDir != cfg.Plugins.Directory {
+			t.Errorf("pluginDir = %s", pluginDir)
+		}
+		if len(pluginFiles) != len(cfg.Plugins.Enabled) {
+			t.Errorf("pluginFiles = %v", pluginFiles)
 		}
 		return nil
 	}

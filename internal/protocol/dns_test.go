@@ -345,11 +345,11 @@ func buildDNSResponse(name, ip string) []byte {
 	dns = append(dns, 0x00, 0x01) // Class IN
 
 	// Answer section (using pointer to question name)
-	dns = append(dns, 0xC0, 0x0C) // Name pointer to offset 12
-	dns = append(dns, 0x00, 0x01) // Type A
-	dns = append(dns, 0x00, 0x01) // Class IN
+	dns = append(dns, 0xC0, 0x0C)             // Name pointer to offset 12
+	dns = append(dns, 0x00, 0x01)             // Type A
+	dns = append(dns, 0x00, 0x01)             // Class IN
 	dns = append(dns, 0x00, 0x00, 0x00, 0x3C) // TTL: 60 seconds
-	dns = append(dns, 0x00, 0x04) // RDLENGTH: 4
+	dns = append(dns, 0x00, 0x04)             // RDLENGTH: 4
 
 	// Parse IP and add as A record data
 	ipBytes := parseIPv4(ip)
@@ -422,7 +422,7 @@ func TestDissectorRegistry(t *testing.T) {
 
 	// Check default dissectors
 	names := r.List()
-	expected := []string{"HTTP/2", "HTTP/1.x", "TLS", "DNS"}
+	expected := []string{"HTTP/2", "WebSocket", "HTTP/1.x", "TLS", "DNS", "gRPC"}
 
 	if len(names) != len(expected) {
 		t.Errorf("expected %d dissectors, got %d", len(expected), len(names))

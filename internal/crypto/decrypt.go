@@ -48,15 +48,15 @@ var (
 
 // CipherSuiteInfo contains information about a cipher suite.
 type CipherSuiteInfo struct {
-	ID        uint16
-	Name      string
-	KeyLen    int
-	IVLen     int
-	TagLen    int
-	HashFunc  func() hash.Hash
-	IsTLS13   bool
-	IsAEAD    bool
-	IsChaCha  bool
+	ID       uint16
+	Name     string
+	KeyLen   int
+	IVLen    int
+	TagLen   int
+	HashFunc func() hash.Hash
+	IsTLS13  bool
+	IsAEAD   bool
+	IsChaCha bool
 }
 
 // SupportedCipherSuites maps cipher suite IDs to their info.

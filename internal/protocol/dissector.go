@@ -45,9 +45,11 @@ func NewRegistry() *DissectorRegistry {
 
 	// Register default dissectors in order of detection priority
 	r.Register(NewHTTP2Dissector())
+	r.Register(NewWebSocketDissector())
 	r.Register(NewHTTP1Dissector())
 	r.Register(NewTLSDissector())
 	r.Register(NewDNSDissector())
+	r.Register(DefaultGRPCDissector())
 
 	return r
 }
@@ -65,7 +67,9 @@ func NewDecryptingRegistry(sessionManager *crypto.SessionManager) *DissectorRegi
 		dissectors: make([]Dissector, 0),
 	}
 	innerRegistry.Register(NewHTTP2Dissector())
+	innerRegistry.Register(NewWebSocketDissector())
 	innerRegistry.Register(NewHTTP1Dissector())
+	innerRegistry.Register(DefaultGRPCDissector())
 
 	// Create TLS decrypting dissector with inner registry
 	tlsDecrypt := NewTLSDecryptingDissector(sessionManager, innerRegistry)
@@ -76,8 +80,10 @@ func NewDecryptingRegistry(sessionManager *crypto.SessionManager) *DissectorRegi
 	// and can match TLS records (0x16 0x03 0x01 looks like an HTTP/2 frame)
 	r.Register(tlsDecrypt)
 	r.Register(NewHTTP2Dissector())
+	r.Register(NewWebSocketDissector())
 	r.Register(NewHTTP1Dissector())
 	r.Register(NewDNSDissector())
+	r.Register(DefaultGRPCDissector())
 
 	return r
 }

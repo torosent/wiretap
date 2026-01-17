@@ -25,15 +25,15 @@ func TestConnectionState_String(t *testing.T) {
 
 func TestConnection_AddPacketAndState(t *testing.T) {
 	pkt := &Packet{
-		Index:      1,
-		Timestamp:  time.Now(),
-		SrcIP:      net.ParseIP("10.0.0.1"),
-		DstIP:      net.ParseIP("10.0.0.2"),
-		SrcPort:    1234,
-		DstPort:    80,
-		Protocol:   ProtocolTCP,
+		Index:       1,
+		Timestamp:   time.Now(),
+		SrcIP:       net.ParseIP("10.0.0.1"),
+		DstIP:       net.ParseIP("10.0.0.2"),
+		SrcPort:     1234,
+		DstPort:     80,
+		Protocol:    ProtocolTCP,
 		CapturedLen: 10,
-		TCPFlags:   TCPFlags{SYN: true},
+		TCPFlags:    TCPFlags{SYN: true},
 	}
 
 	conn := NewConnection(1, pkt)
@@ -42,15 +42,15 @@ func TestConnection_AddPacketAndState(t *testing.T) {
 	}
 
 	resp := &Packet{
-		Index:      2,
-		Timestamp:  pkt.Timestamp.Add(time.Second),
-		SrcIP:      pkt.DstIP,
-		DstIP:      pkt.SrcIP,
-		SrcPort:    pkt.DstPort,
-		DstPort:    pkt.SrcPort,
-		Protocol:   ProtocolTCP,
+		Index:       2,
+		Timestamp:   pkt.Timestamp.Add(time.Second),
+		SrcIP:       pkt.DstIP,
+		DstIP:       pkt.SrcIP,
+		SrcPort:     pkt.DstPort,
+		DstPort:     pkt.SrcPort,
+		Protocol:    ProtocolTCP,
 		CapturedLen: 20,
-		TCPFlags:   TCPFlags{SYN: true, ACK: true},
+		TCPFlags:    TCPFlags{SYN: true, ACK: true},
 	}
 	conn.AddPacket(resp)
 	if conn.State != ConnectionStateOpen {
@@ -61,15 +61,15 @@ func TestConnection_AddPacketAndState(t *testing.T) {
 	}
 
 	fin := &Packet{
-		Index:      3,
-		Timestamp:  pkt.Timestamp.Add(2 * time.Second),
-		SrcIP:      pkt.SrcIP,
-		DstIP:      pkt.DstIP,
-		SrcPort:    pkt.SrcPort,
-		DstPort:    pkt.DstPort,
-		Protocol:   ProtocolTCP,
+		Index:       3,
+		Timestamp:   pkt.Timestamp.Add(2 * time.Second),
+		SrcIP:       pkt.SrcIP,
+		DstIP:       pkt.DstIP,
+		SrcPort:     pkt.SrcPort,
+		DstPort:     pkt.DstPort,
+		Protocol:    ProtocolTCP,
 		CapturedLen: 5,
-		TCPFlags:   TCPFlags{FIN: true},
+		TCPFlags:    TCPFlags{FIN: true},
 	}
 	conn.AddPacket(fin)
 	if conn.State != ConnectionStateClosing {
@@ -80,13 +80,13 @@ func TestConnection_AddPacketAndState(t *testing.T) {
 func TestConnection_DurationAndTotalBytes(t *testing.T) {
 	start := time.Now()
 	pkt := &Packet{
-		Index:      1,
-		Timestamp:  start,
-		SrcIP:      net.ParseIP("10.0.0.1"),
-		DstIP:      net.ParseIP("10.0.0.2"),
-		SrcPort:    1111,
-		DstPort:    2222,
-		Protocol:   ProtocolTCP,
+		Index:       1,
+		Timestamp:   start,
+		SrcIP:       net.ParseIP("10.0.0.1"),
+		DstIP:       net.ParseIP("10.0.0.2"),
+		SrcPort:     1111,
+		DstPort:     2222,
+		Protocol:    ProtocolTCP,
 		CapturedLen: 10,
 	}
 	conn := NewConnection(1, pkt)
@@ -121,13 +121,13 @@ func TestStream_Append_Reset(t *testing.T) {
 func TestConnectionTracker(t *testing.T) {
 	tracker := NewConnectionTracker()
 	pkt := &Packet{
-		Index:      1,
-		Timestamp:  time.Now(),
-		SrcIP:      net.ParseIP("10.0.0.1"),
-		DstIP:      net.ParseIP("10.0.0.2"),
-		SrcPort:    1234,
-		DstPort:    80,
-		Protocol:   ProtocolTCP,
+		Index:       1,
+		Timestamp:   time.Now(),
+		SrcIP:       net.ParseIP("10.0.0.1"),
+		DstIP:       net.ParseIP("10.0.0.2"),
+		SrcPort:     1234,
+		DstPort:     80,
+		Protocol:    ProtocolTCP,
 		CapturedLen: 10,
 	}
 

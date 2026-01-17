@@ -16,9 +16,9 @@ import (
 
 // App represents the TUI application.
 type App struct {
-	app      *tview.Application
-	pages    *tview.Pages
-	registry *protocol.DissectorRegistry
+	app         *tview.Application
+	pages       *tview.Pages
+	registry    *protocol.DissectorRegistry
 	queueUpdate func(func())
 	run         func() error
 

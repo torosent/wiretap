@@ -263,7 +263,7 @@ func TestPacket_Duration(t *testing.T) {
 func TestIPToBytes(t *testing.T) {
 	ipv4 := net.ParseIP("192.168.1.1")
 	bytes := IPToBytes(ipv4)
-	
+
 	// Should be IPv4-mapped IPv6
 	if bytes[10] != 0xff || bytes[11] != 0xff {
 		t.Error("IPv4 should be mapped to IPv6 format")
@@ -282,10 +282,10 @@ func TestBytesToIP_IPv4(t *testing.T) {
 	bytes[13] = 168
 	bytes[14] = 1
 	bytes[15] = 1
-	
+
 	ip := BytesToIP(bytes)
 	expected := net.ParseIP("192.168.1.1").To4()
-	
+
 	if !ip.Equal(expected) {
 		t.Errorf("BytesToIP = %v, want %v", ip, expected)
 	}

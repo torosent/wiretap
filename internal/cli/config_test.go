@@ -102,3 +102,43 @@ func TestRunConfig_PrintConfig(t *testing.T) {
 		t.Error("Expected YAML config output")
 	}
 }
+
+func TestWriteDefaultConfig_ExistingNoForce(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "config.yaml")
+
+	if err := os.WriteFile(path, []byte("existing"), 0o644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	cmd := &cobra.Command{}
+	cmd.SetOut(&bytes.Buffer{})
+
+	if err := writeDefaultConfig(path, false, cmd); err == nil {
+		t.Fatal("Expected error when config already exists without --force")
+	}
+}
+
+func TestWriteDefaultConfig_ForceOverwrite(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "config.yaml")
+
+	if err := os.WriteFile(path, []byte("existing"), 0o644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	cmd := &cobra.Command{}
+	cmd.SetOut(&bytes.Buffer{})
+
+	if err := writeDefaultConfig(path, true, cmd); err != nil {
+		t.Fatalf("writeDefaultConfig failed: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile failed: %v", err)
+	}
+	if strings.Contains(string(data), "existing") {
+		t.Fatal("Expected config to be overwritten")
+	}
+}

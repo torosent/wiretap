@@ -28,10 +28,15 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libpcap-dev
 
       - name: Test
-        run: go test ./...
+        run: go test ./... -coverprofile=coverage.txt
 
       - name: Vet
         run: go vet ./...
 
       - name: Build
         run: go build ./cmd/wiretap
+        
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}

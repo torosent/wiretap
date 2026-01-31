@@ -4,7 +4,7 @@ go 1.24.0
 
 require (
 	github.com/edsrzf/mmap-go v1.2.0
-	github.com/gdamore/tcell/v2 v2.13.7
+	github.com/gdamore/tcell/v2 v2.13.8
 	github.com/gopacket/gopacket v1.5.0
 	github.com/rivo/tview v0.42.0
 	github.com/spf13/cobra v1.10.2
